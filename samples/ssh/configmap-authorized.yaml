@@ -1,0 +1,14 @@
+# Instead of having the full authorized file as a single item, each
+# item is broken as a separate entry.
+#
+# This allows patching the configmap.
+#
+# If the cluster has a sshca.sshca.svc service it can be used directly.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssh-authorized
+data:
+  # Do not use this value, it is a sample
+  costin: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDItghGefVWkrYUHT6Xz1HflvJi8UH5MUyz4NuUYzCJiLnZCUsJE4jRF57J+u4hxtgZkw2OUBYYZzQqfwrG3/qQawC0THfWSeW85EYP5+VpJVjFYFHXVTzcLgltbXgSVQeJiz0Ix+s8IvhD75OVrbi2BgPptYyCiCH9Kk1GoBvX9xLBdBqqstYQ6Lnik6oS+204WxFA9eW5JsHBk43pXrwjv0d8/o4518xU2GozMLkiNC1tHPnY885yzc6VYS/MVH+sA9p9MTU406SxucGSSlxeCm7zh2mbWFSGiv6isJNZ4faXX65IC/0BMwKLSd1RgtBXZBgIh2gyrhtz4fjbJdif costin@s6
+---

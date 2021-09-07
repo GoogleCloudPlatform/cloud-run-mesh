@@ -1,0 +1,7 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--tag=gcr.io/$PROJECT_ID/hbgate', '-f', 'cmd/gate/Dockerfile', '.']
+
+  # TODO: deploy to istio-system
+
+images: ['gcr.io/$PROJECT_ID/hbgate']

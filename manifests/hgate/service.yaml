@@ -1,0 +1,78 @@
+# TODO: add a gateway injection
+# TODO: add RBAC to create Service and WorkloadInstance for auto-registration
+# TODO: option to use ILB ( requires Cloudrun connector ) or regular LB - can be used without connector
+#
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: hgate
+  namespace: istio-system
+  labels:
+    topology.istio.io/network: hbone
+spec:
+  ports:
+    # Standard port for SNI routing in gateways, same as east-west gateway
+    # Used by envoy, for Istio multi-network inbound traffic.
+    - port: 15443
+      name: tls
+    - port: 15008
+      name: https-hbone
+    # 15442 is the dedicated port for SNI to mTLS-over-hbone outbound tunneling.
+    # Not exposed on the public endpoint
+    # Reverse connections
+    - port: 15441
+      name: https-h2r
+    # Since we're deploying a Gateway, also include the std ports.
+    # It is possible to share the gateway for regular ingress.
+    - port: 443
+      name: https
+      targetPort: 8443
+    - port: 80
+      name: http
+      targetPort: 8080
+
+    # Used for docker containers on the public internet, or if CloudRun doesn't use a connector.
+    - port: 15012
+      name: tls-istiod
+  selector:
+    app: hgate
+  type: LoadBalancer
+
+---
+# https://cloud.google.com/kubernetes-engine/docs/how-to/internal-load-balancing
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: internal-hgate
+  namespace: istio-system
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+    cloud.google.com/load-balancer-type: "Internal"
+    networking.gke.io/internal-load-balancer-allow-global-access: "true"
+
+  labels:
+    topology.istio.io/network: hbone
+spec:
+  ports:
+    # Standard port for SNI routing in gateways, same as east-west gateway
+    - port: 15443
+      name: tls
+    # Dedicated port for SNI to mTLS-over-hbone tunneling.
+    - port: 15442
+      name: tls-tun
+    - port: 15008
+      name: https-hbone
+    # Reverse connection support.
+    - port: 15441
+      name: https-h2r
+    # Used for docker containers/VMs on internal VPC, or CloudRun using connector - for in-cluster Istiod.
+    - port: 15012
+      name: tls-istiod
+  selector:
+    app: hgate
+  type: LoadBalancer
+
+---
+

@@ -1,0 +1,121 @@
+timeout: 1200s
+options:
+  substitution_option: ALLOW_LOOSE
+  machineType: 'N1_HIGHCPU_8'
+
+# Execution environment:
+# HOME=/builder/home
+# pwd=/workspace
+# BUILDER_OUTPUT=/builder/outputs
+# GOCACHE=/gocache
+
+
+steps:
+
+# ~2 min
+  - name: 'gcr.io/kaniko-project/executor:latest'
+    id: base-kaniko
+    args:
+      - --destination=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
+      - --cache=true
+      - --cache-ttl=240h
+      - --force
+    timeout: 1200s
+#
+# ~15sec
+  - name: 'gcr.io/kaniko-project/executor:latest'
+    id: fortio
+    args:
+      - --destination=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
+      - --dockerfile=samples/fortio/Dockerfile
+      - --context=dir://samples/fortio
+      - --build-arg=BASE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
+      - --cache=true
+      - --cache-ttl=240h
+    timeout: 1200s
+    waitFor:
+      - base-kaniko
+
+  - name: 'gcr.io/kaniko-project/executor:latest'
+    id: hgate
+    args:
+      - --destination=gcr.io/$PROJECT_ID/hgate:$BRANCH_NAME
+      - --dockerfile=cmd/gate/Dockerfile
+      - --build-arg=BASE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
+      - --cache=true
+      - --cache-ttl=240h
+    timeout: 1200s
+    waitFor:
+      - base-kaniko
+
+  # Run tests. We need a docker image with cloudrun (for get credentials) and go
+  #  get-credentials generate a file with exec gcloud - so it must be present.
+  # TODO: use krun to generate a config using metadata server, or add golang to alpine
+  #- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
+  - name: gcr.io/wlhe-cr/gcloud-alpha
+  #- name: gcr.io/$PROJECT_ID/krun-builder:latest
+    entrypoint: /bin/sh
+    env:
+      - PROJECT_ID=$PROJECT_ID
+      - CLUSTER_NAME=asm-cr
+      - CLUSTER_LOCATION=us-central1-c
+      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
+      - KUBECONFIG=/workspace/kubeconfig
+    waitFor:
+      - "-"
+    args:
+      - -c
+      - |
+        gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
+        make test
+
+  # Deploy the in-cluster connector. Note that the runner doesn't have RBAC permissions
+  # The cluster must be setup with the RBAC manually.
+  - name: "gcr.io/cloud-builders/gke-deploy"
+    id: k8sdeploy
+    entrypoint: /bin/sh
+    env:
+      - PROJECT_ID=$PROJECT_ID
+      - CLUSTER_NAME=asm-cr
+      - CLUSTER_LOCATION=us-central1-c
+      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
+      - KUBECONFIG=/workspace/kubeconfig
+    waitFor:
+      - fortio
+      - hgate
+    args:
+      - -c
+      - |
+        make deploy/hgate
+
+  # Deploy the canary, run tests
+  # Missing alpha command
+  #- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  - name: gcr.io/wlhe-cr/gcloud-alpha
+    #- name: gcr.io/$PROJECT_ID/krun-builder:latest
+    entrypoint: /bin/sh
+    env:
+      - PROJECT_ID=$PROJECT_ID
+      - CLUSTER_NAME=asm-cr
+      - CLUSTER_LOCATION=us-central1-c
+      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
+      - KUBECONFIG=/workspace/kubeconfig
+    waitFor:
+      - fortio
+      - k8sdeploy
+    args:
+      - -c
+      - |
+        make canary
+
+  # TODO: combine gcloud, go, etc in single image - Istio build image is huge
+  # Also includes gcloud 349.0.0
+  # https://github.com/GoogleCloudPlatform/cloud-builders-community/tree/master/ko is a good
+  # base, includes ko, kubectl, gcloud
+  # They use: CLOUDSDK_COMPUTE_ZONE, CLOUDSDK_CONTAINER_CLUSTER, CLOUDSDK_CORE_PROJECT
+#go get -u github.com/jstemmer/go-junit-report
+#2>&1 go test -timeout 1m -v ./... | tee sponge.log
+#/go/bin/go-junit-report -set-exit-code < sponge.log > ${SHORT_SHA}_test_log.xml
+
+
+

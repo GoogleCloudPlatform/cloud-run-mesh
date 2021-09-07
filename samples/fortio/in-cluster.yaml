@@ -1,0 +1,83 @@
+# This is an expanded yaml file for installing fortio in a K8S cluster for this sample and testing.
+# Based on the normal fortio, with few annotations and comments used for debugging and tunning.
+
+# Istio configs are setting it to strict mode - which is required for SNI routing and recommended for prod.
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortio
+spec:
+  ports:
+    - port: 8080
+      name: http-echo
+  selector:
+    app: fortio
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio
+spec:
+  selector:
+    matchLabels:
+      app: fortio
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        #sidecar.istio.io/logLevel: "TRACE"
+        #sidecar.istio.io/enableCoreDump: "true"
+        # For debugging
+        sidecar.istio.io/privileged: "true"
+        #sidecar.istio.io/debug: "true"
+        #sidecar.istio.io/componentLogLevel: "config:trace,http2:trace,init:trace,grpc:trace,upstream:trace"
+
+        # Override container ports
+        #traffic.sidecar.istio.io/includeInboundPorts: "*"
+        sidecar.istio.io/proxyCPU: 10m
+      labels:
+        app: fortio
+        version: v1
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+      - name: fortio
+        image: costinm/fortio:latest
+        ports:
+         - containerPort: 8080
+           name: http
+         - containerPort: 8081
+           name: grpc
+         - containerPort: 8079
+        args:
+          - server
+        resources:
+          requests:
+            cpu: 10m
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "1G"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: fortio
+spec:
+  host: fortio
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: fortio
+spec:
+  selector:
+    matchLabels:
+      app: fortio
+  mtls:
+    mode: STRICT

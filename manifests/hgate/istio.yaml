@@ -1,0 +1,75 @@
+# The HBone gateway can also be used to reach in-cluster Istiod. This will be merged with the east-west gateway,
+# so it needs to keep the same features
+
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: hgate-istiod
+  namespace: istio-system
+spec:
+  selector:
+    istio: hgate
+  servers:
+    # Port 15012 is using SNI routing, with mesh identities.
+    # Istiod is expected to use explicit ServerName istiod.istio-system.svc
+    # Other SNI routes can be added explicitly, expectation is to use mTLS or
+    # TLS+JWT
+    - port:
+        name: tls-istiod
+        number: 15012
+        protocol: tls
+      tls:
+        mode: PASSTHROUGH
+      hosts:
+        - "*"
+    - port:
+        name: https
+        number: 15008
+        protocol: HTTPS
+      tls:
+        mode: ISTIO_MUTUAL
+      hosts:
+        - "*"
+    # Temp, testing
+    - port:
+        name: tls-istiodtest
+        number: 15099
+        protocol: tls
+      tls:
+        mode: PASSTHROUGH
+      hosts:
+        - "*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: hgate-istiod
+  namespace: istio-system
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - hgate-istiod
+  tls:
+    - match:
+        - port: 15012
+          sniHosts:
+            - "istiod.istio-system.svc"
+      route:
+        - destination:
+            host: istiod.istio-system.svc.cluster.local
+            port:
+              number: 15012
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: hgate-istiod
+spec:
+  host: istiod.istio-system.svc.cluster.local
+  trafficPolicy:
+    portLevelSettings:
+      - port:
+          number: 15012
+        tls:
+          mode: DISABLE

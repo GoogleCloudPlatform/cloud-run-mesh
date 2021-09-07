@@ -1,0 +1,50 @@
+# Allow all system-authenticated KSAs to read the mesh config and root cert in istio-system for MCP.
+# The config is indirectly available to pods via injection, no secrets inside.
+# Istiod public cert is replicated in all namespaces and available - reading the one in istio-system to avoid
+# replication details. In future we should be able to use this method instead of having the replication controller.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: istio-system
+  name: istio-autoconf
+rules:
+  - apiGroups: [""]
+    resources:
+      - "configmaps"
+    resourceNames:
+      # mesh-env config map is auto-created if it doesn't exist, will include
+      # mesh-specific settings needed to connect to the mesh
+      # The values can also be specified as env variables on the workload.
+      # For Istio, it is a subset of the internal env variables used by injection
+      - "mesh-env"
+
+      # Temp - will be replaced by mesh-env
+      - "env-asm-managed"
+      - "istio-ca-root-cert"
+      - "istio"
+    verbs:
+      - "get"
+
+  # Temp - used to find connector internal/external LB IP.
+  # Will be included in mesh-env
+  - apiGroups: [""]
+    resources:
+      - "services"
+    verbs:
+      - "get"
+      - "list"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: istio-system
+  name: istio-autoconf-all
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: istio-autoconf
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

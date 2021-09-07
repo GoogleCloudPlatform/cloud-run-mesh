@@ -1,0 +1,99 @@
+# Config for routing to a CloudRun service using the SNI gateway.
+#
+# This will be automated as a controller, but useful to see the actual config and also
+# debug or create custom entries.
+#
+# K_SERVICE is the first component of the CloudRun URL - example fortio-istio-icq63pqnqq-uc
+# WORKLOAD_NAME is the name of the CloudRun service - in this case fortio-istio
+# WORKLOAD_NAMESPACE is the k8s namespace where the CR service is 'attached'
+#
+# Each CloudRun deployment corresponds to one Service - the new K8S Gateway API is
+# not using DestinationRule-style subsetting, and we want to represent each CR region
+# as a separate subset.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${K_SERVICE}
+  namespace: ${WORKLOAD_NAMESPACE}
+  labels:
+    mesh-cloudrun: ${WORKLOAD_NAME}
+spec:
+  # Service name matches the actual service name in CloudRun.
+  # This is used to acccess only the service in cloudrun, in a region. Can be used as a subset
+  # TODO: auto-create this if it doesn't exist, in SNIGate
+  ports:
+    # Port corresponds to the CloudRun app port - default is 8080
+    # TODO: support custom ports in cloudrun
+    - port: 8080
+      name: http
+      # TargetPort is the fixed port for the SNI router.
+      targetPort: 15443
+  selector:
+    app: ${WORKLOAD_NAME}
+
+---
+# The registered cloudrun service only support mTLS, don't generate extra
+# config for 'permissive' or plain.
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: ${WORKLOAD_NAME}
+  namespace: ${WORKLOAD_NAMESPACE}
+spec:
+  host: ${K_SERVICE}.fortio.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+
+#---
+## WorkloadGroup associates GSA to KSA - moved to separate google-service-account-template
+#apiVersion: networking.istio.io/v1alpha3
+#kind: WorkloadGroup
+#metadata:
+#  name: ${WORKLOAD_NAME}
+#  namespace: ${WORKLOAD_NAMESPACE}
+#spec:
+#  metadata:
+#    labels:
+#      app: ${WORKLOAD_NAME}
+#    annotations:
+#      security.cloud.google.com/IdentityProvider: google
+#  template:
+#    ports:
+#      http: 8080
+#    serviceAccount: k8s-fortio@wlhe-cr.iam.gserviceaccount.com
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: WorkloadEntry
+metadata:
+  name: ${WORKLOAD_NAME}-sni
+  namespace: ${WORKLOAD_NAMESPACE}
+spec:
+  labels:
+    app: ${WORKLOAD_NAME}
+  serviceAccount: default
+  address: ${SNI_GATE_IP}
+  ports:
+    http: 15442
+---
+
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  namespace: ${WORKLOAD_NAMESPACE}
+  name: ${K_SERVICE}
+#  labels:
+#    topology.istio.io/network: hbone
+spec:
+  hosts:
+    - ${K_SERVICE}.fortio.svc.cluster.local
+  location: MESH_INTERNAL
+  ports:
+    - number: 8080
+      name: http
+      protocol: HTTP
+      #targetPort: 15443
+  resolution: STATIC
+  workloadSelector:
+    labels:
+      app: ${WORKLOAD_NAME}

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hgate
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      app: hgate
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        inject.istio.io/templates: gateway
+      labels:
+        app: hgate
+        istio: hgate
+        version: v2.2
+        # Turns off injection, regardless of namespace label.
+        # The docker image extends istio-proxy and includes envoy, knows how to start
+        # without injection.
+        #sidecar.istio.io/inject: "false"
+
+        # Use default injection. If Istio is not installed in the cluster, will
+        # auto-detect.
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+        - name: istio-proxy
+          # Istio injection should not override this
+          image: gcr.io/wlhe-cr/krun/gate:latest
+          env:
+            # The launcher can't usually auto-detect the namespace, except from
+            # the identity.
+            - name: WORKLOAD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 15443
+              name: tls
+            - containerPort: 15441
+              name: https-h2r
+          resources:
+            requests:
+              cpu: 10m
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1G"
+
+
+
