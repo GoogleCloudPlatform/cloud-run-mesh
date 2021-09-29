@@ -114,15 +114,16 @@ type KRun struct {
 	// MeshAddr is the location of the mesh environment file.
 	MeshAddr    string
 	CitadelRoot string
+	InstanceID  string
 }
 
 func New(addr string) *KRun {
 	kr := &KRun{
-		MeshAddr: addr,
-		StartTime:    time.Now(),
-		Aud2File:     map[string]string{},
-		Labels:       map[string]string{},
-		ProxyConfig:  &ProxyConfig{},
+		MeshAddr:    addr,
+		StartTime:   time.Now(),
+		Aud2File:    map[string]string{},
+		Labels:      map[string]string{},
+		ProxyConfig: &ProxyConfig{},
 	}
 	return kr
 }
@@ -130,7 +131,7 @@ func New(addr string) *KRun {
 // initFromEnv will use the env variables, metadata server and cluster configmaps
 // to get the initial configuration for Istio and KRun.
 //
-func (kr *KRun) initFromEnv()  {
+func (kr *KRun) initFromEnv() {
 
 	if kr.KSA == "" {
 		// Same environment used for VMs
@@ -151,20 +152,17 @@ func (kr *KRun) initFromEnv()  {
 		kr.Gateway = os.Getenv("GATEWAY_NAME")
 	}
 	if kr.MeshTenant == "" {
-		kr.MeshTenant = os.Getenv("ISTIOD_TENANT")
+		kr.MeshTenant = os.Getenv("MESH_TENANT")
 	}
 
 	ks := os.Getenv("K_SERVICE")
-	if kr.Namespace == "" {
+	if kr.Name == "" {
 		verNsName := strings.SplitN(ks, "--", 2)
 		if len(verNsName) > 1 {
 			ks = verNsName[1]
 			kr.Labels["ver"] = verNsName[0]
-		}
-		parts := strings.Split(ks, "-")
-		kr.Namespace = parts[0]
-		if len(parts) > 1 {
-			kr.Name = parts[1]
+		} else {
+			kr.Name = ks
 		}
 	}
 

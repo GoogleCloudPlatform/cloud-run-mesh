@@ -36,6 +36,9 @@ KRUN_IMAGE?=${KO_DOCKER_REPO}:latest
 HGATE_IMAGE?=${KO_DOCKER_REPO}/gate:latest
 
 WORKLOAD_NAME?=fortio-cr
+WORKLOAD_NAMESPACE?=fortio
+
+CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
 
 FORTIO_IMAGE?=gcr.io/${PROJECT_ID}/fortio-mesh:latest
 export FORTIO_IMAGE
@@ -111,13 +114,34 @@ deploy/fortio-auth:
 	gcloud alpha run deploy fortio-auth \
     		  --execution-environment=gen2 \
     		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
-    		  --service-account=${WORKLOAD_SERVICE_ACCOUNT} \
+    		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
               --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
              \
              --use-http2 \
              --port 15009 \
              \
              --image ${FORTIO_IMAGE} \
+
+deploy/fortio-debug:
+	gcloud alpha run deploy fortio-debug -q \
+    		  --execution-environment=gen2 \
+    		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
+    		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
+              --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+             \
+             --set-env-vars="^.^ENVOY_LOG_LEVEL=debug,config:warn,main:warn,upstream:warn" \
+             \
+             --use-http2 \
+             --port 15009 \
+             \
+             --image ${FORTIO_IMAGE} \
+
+
+deploy/fortio-asm:
+    # OSS/ASM with Istiod exposed in Gateway, with ACME certs
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-crasm \
+		FORTIO_DEPLOY_EXTRA="--set-env-vars MESH_TENANT=-" \
+		make deploy)
 
 
 logs:
@@ -207,6 +231,7 @@ deploy/istiod:
 		--set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
 		--set global.sds.token.aud="${PROJECT_ID}.svc.id.goog" \
 		--set pilot.env.TOKEN_AUDIENCES="${PROJECT_ID}.svc.id.goog\,istio-ca" \
+		--set pilot.env.ISTIO_MULTIROOT_MESH=true \
 		--set meshConfig.proxyHttpPort=15007 \
         --set meshConfig.accessLogFile=/dev/stdout \
         --set pilot.replicaCount=1 \
@@ -222,25 +247,32 @@ canary/all: push/fortio canary
 # Used in GCB, where the images are built with Kaniko
 canary: canary/deploy canary/test
 
-canary/deploy: canary/deploy-mcp canary/deploy-asm
+canary/deploy: canary/deploy-mcp canary/deploy-mcp2 canary/deploy-asm canary/deploy-auth
 
 canary/deploy-mcp:
-	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-mcp  \
-    	make deploy)
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-crmcp  \
+    	make deploy setup-sni)
 
 # Deploy in another cluster
 canary/deploy-mcp2:
 	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-asm-cr CLUSTER_NAME=asm-cr CLUSTER_LOCATION=us-central1-c \
-    	make deploy)
+		FORTIO_DEPLOY_EXTRA="--set-env-vars CLUSTER_NAME=${CLUSTER_NAME}" \
+    	make deploy setup-sni)
 
 canary/deploy-asm:
     # OSS/ASM with Istiod exposed in Gateway, with ACME certs
-	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-istio CLUSTER_NAME=istio CLUSTER_LOCATION=us-central1-c \
-		EXTRA="--set-env-vars XDS_ADDR=istiod.wlhe.i.webinf.info:443" \
-		make deploy)
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-istio \
+		FORTIO_DEPLOY_EXTRA="--set-env-vars MESH_TENANT=-" \
+		make deploy setup-sni)
+
+# Alternative, using real cert:	XDS_ADDR=istiod.wlhe.i.webinf.info:443" \
+
+canary/deploy-auth:
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-istio-auth \
+		make deploy-auth)
 
 # Example: MCP_URL=https://fortio-asm-cr-icq63pqnqq-uc.a.run.app
-canary/test: CR_MCP_URL=$(shell gcloud run services describe fortio-mcp --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
+canary/test: CR_MCP_URL=$(shell gcloud run services describe fortio-crmcp --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
 canary/test: CR_ASM_URL=$(shell gcloud run services describe fortio-istio --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
 canary/test:
 	curl  -v  ${CR_MCP_URL}/fortio/fetch2/?url=http%3A%2F%2Ffortio.fortio.svc%3A8080%2Fecho
@@ -253,6 +285,8 @@ canary/test:
 logs/fortio-mcp:
 	(cd samples/fortio; WORKLOAD_NAME=fortio-mcp make logs)
 
+config_dump:
+	@(cd samples/fortio;  make -s config_dump_ssh)
 ##### GCB related targets
 
 # Create the builder docker image, used in GCB
@@ -276,3 +310,9 @@ gcb/build-hgate:
 gcb/build:
 	gcloud builds --project ${PROJECT_ID} submit .
 
+
+logs-mcp:
+	gcloud --project ${PROJECT_ID} logging read \
+    	   --format "csv(textPayload,jsonPayload.message)" \
+    		--freshness 1h \
+     		'resource.type="istio_control_plane"'

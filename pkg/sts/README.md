@@ -1,14 +1,14 @@
 # STS  (secure token service) client and server code
 
-Extracted from Istio repository and cleaned up. The intent is to include it directly in the krun/hbone, to avoid requiring
-pilot-agent for proxyless gRPC and 'uProxy' hbone mode.
+Extracted from Istio repository and cleaned up. The intent is to include it directly in the krun/hbone, to avoid
+requiring pilot-agent for proxyless gRPC and 'uProxy' hbone mode.
 
 STS is defined in RFC6750. Istio client is in stsclient.go (used for MeshCA) and tokenexchangeplugin.go.
 
 Golang gRPC has credentials/sts/sts.go - unfortunately the API requires the token to be saved to a path
 
-
 Stackdriver uses a similar STS exchange, implemented in Envoy, with STS server in istio-agent, using:
+
 ```json
  {
         "stackdriver_grpc_service": {
@@ -44,5 +44,4 @@ Stackdriver uses a similar STS exchange, implemented in Envoy, with STS server i
 
 [generateAccessToken](https://cloud.google.com/iam/docs/reference/credentials/rest/v1/projects.serviceAccounts/generateAccessToken)
 
-Requires 'iam.serviceAccounts.getAccessToken' permission
-or roles/iam.serviceAccountTokenCreator
+Requires 'iam.serviceAccounts.getAccessToken' permission or roles/iam.serviceAccountTokenCreator

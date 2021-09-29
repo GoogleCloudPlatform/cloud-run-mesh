@@ -41,12 +41,11 @@ type MeshConnector struct {
 	HBone       *hbone.HBone
 	Mesh        *mesh.KRun
 
-	Namespace   string
+	Namespace     string
 	ConfigMapName string
 
 	stop chan struct{}
 }
-
 
 type cachedToken struct {
 	token      string
@@ -57,18 +56,24 @@ type TokenCache struct {
 	cache sync.Map
 	kr    *mesh.KRun
 	sts   *sts.STS
+	m     sync.Mutex
 }
 
-func (c TokenCache) Token(ctx context.Context, host string) (string, error) {
+func NewTokenCache(kr *mesh.KRun, sts *sts.STS) *TokenCache {
+	return &TokenCache{kr: kr, sts: sts}
+}
 
+func (c *TokenCache) Token(ctx context.Context, host string) (string, error) {
 	if got, f := c.cache.Load(host); f {
 		t := got.(cachedToken)
-		if !t.expiration.After(time.Now().Add(-time.Minute)) {
+		if t.expiration.After(time.Now().Add(-time.Minute)) {
 			return t.token, nil
 		}
+		log.Println("Token expired", t.expiration, time.Now(), host)
 	}
 
 	mt, err := c.sts.GetRequestMetadata(ctx, host)
+
 	if err != nil {
 		return "", err
 	}
@@ -80,18 +85,18 @@ func (c TokenCache) Token(ctx context.Context, host string) (string, error) {
 	//log.Println("XXX debug Gettoken from metadata", host, k8s.TokenPayload(t), err)
 
 	c.cache.Store(host, cachedToken{t, time.Now().Add(45 * time.Minute)})
+	//log.Println("Storing JWT", host)
 	return t, nil
 }
 
 func New(kr *mesh.KRun) *MeshConnector {
 	return &MeshConnector{
-		Mesh: kr,
-		Namespace: "istio-system",
+		Mesh:          kr,
+		Namespace:     "istio-system",
 		ConfigMapName: "mesh-env",
-		stop : make(chan struct{}),
+		stop:          make(chan struct{}),
 	}
 }
-
 
 func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPort string) error {
 	kr := sg.Mesh
@@ -148,7 +153,7 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	// gate without pilot-agent/envoy, will use built-in CA providers.
 	auth, err := hbone.NewAuthFromDir(kr.BaseDir + "var/run/secrets/istio.io/")
 	if err != nil {
-		return  err
+		return err
 	}
 
 	// All namespaces are allowed to connect.
@@ -159,10 +164,10 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	sg.HBone = h2r
 	stsc, err := sts.NewSTS(kr)
 	if err != nil {
-		return  err
+		return err
 	}
 
-	tcache := &TokenCache{kr: kr, sts: stsc}
+	tcache := NewTokenCache(kr, stsc)
 	h2r.TokenCallback = tcache.Token
 
 	sg.updateMeshEnv(ctx)
@@ -185,11 +190,11 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 			// TODO: extract 'version' from URL, convert it to cloudrun revision ?
 			// TODO: watcher on Service or ServiceEntry ( k8s or XDS ) to get annotation, allowing service name to be different
 		}
-		log.Println("Endpoint resolver, h2r not found", parts)
 
 		base := remoteService + ".a.run.app"
 		h2c := h2r.NewClient(sni)
-		ep := h2c.NewEndpoint("https://" + base + "/_hbone/mtls")
+		//ep := h2c.NewEndpoint("https://" + base + "/_hbone/mtls")
+		ep := h2c.NewEndpoint("https://" + base + "/_hbone/15003")
 		ep.SNI = base
 
 		return ep
@@ -207,7 +212,7 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 
 	sg.SNIListener, err = hbone.ListenAndServeTCP(sniPort, h2r.HandleSNIConn)
 	if err != nil {
-		return  err
+		return err
 	}
 
 	sg.H2RListener, err = hbone.ListenAndServeTCP(h2rPort, h2r.HandlerH2RConn)
@@ -233,7 +238,7 @@ func FindInClusterAddr(ctx context.Context, kr *mesh.KRun) error {
 	return nil
 }
 
-func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error){
+func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
 	// TODO: depending on error, move on or report a real error
 	kr := sg.Mesh
 	cm, err := kr.GetCM(ctx, "istio-system", "istio-ca-root-cert")
@@ -252,7 +257,6 @@ func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error){
 		}
 	}
 }
-
 
 // FindXDSAddr will try to find the XDSAddr using in-cluster info.
 // This is called after K8S client has been initialized.
@@ -373,4 +377,3 @@ func (sg *MeshConnector) WaitInternalService(ctx context.Context) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 }
-

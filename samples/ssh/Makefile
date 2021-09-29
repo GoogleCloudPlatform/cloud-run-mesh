@@ -14,7 +14,7 @@ init-keys:
 
 WORKLOAD_NAMESPACE?=default
 
-make-secret: init-keys
+secret: init-keys
 	kubectl -n ${WORKLOAD_NAMESPACE} delete secret sshdebug || true
 	kubectl -n ${WORKLOAD_NAMESPACE} create secret generic \
  		sshdebug \

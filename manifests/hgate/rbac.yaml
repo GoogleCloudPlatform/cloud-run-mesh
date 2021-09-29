@@ -20,7 +20,7 @@ metadata:
   namespace: istio-system
   name: hgate-default-tokens
 rules:
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - "serviceaccounts/token"
     resourceNames:
@@ -28,7 +28,7 @@ rules:
     verbs:
       - "create"
       - "get"
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - "configmaps"
     resourceNames:
@@ -44,7 +44,7 @@ metadata:
   namespace: istio-system
   name: hgate-service-view
 rules:
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - "configmaps"
       - "services"

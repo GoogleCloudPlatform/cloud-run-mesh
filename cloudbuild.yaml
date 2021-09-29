@@ -26,7 +26,8 @@ options:
 
 steps:
 
-# ~2 min
+  # Build golden base, hgate, test app using Kaniko.
+  # ~2 min
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: base-kaniko
     args:
@@ -35,8 +36,8 @@ steps:
       - --cache-ttl=240h
       - --force
     timeout: 1200s
-#
-# ~15sec
+
+  # ~15sec
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: fortio
     args:
@@ -62,12 +63,9 @@ steps:
     waitFor:
       - base-kaniko
 
-  # Run tests. We need a docker image with cloudrun (for get credentials) and go
-  #  get-credentials generate a file with exec gcloud - so it must be present.
-  # TODO: use krun to generate a config using metadata server, or add golang to alpine
-  #- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
+  # Run tests. We need a docker image with cloudrun (for get credentials).
+  #  gcloud get-credentials generate a KUBECONFIG file using exec gcloud - so it must be present.
   - name: gcr.io/wlhe-cr/gcloud-alpha
-  #- name: gcr.io/$PROJECT_ID/krun-builder:latest
     entrypoint: /bin/sh
     env:
       - PROJECT_ID=$PROJECT_ID
@@ -85,8 +83,8 @@ steps:
 
   # Deploy the in-cluster connector. Note that the runner doesn't have RBAC permissions
   # The cluster must be setup with the RBAC manually.
-  - name: "gcr.io/cloud-builders/gke-deploy"
-    id: k8sdeploy
+  - name: gcr.io/wlhe-cr/gcloud-alpha
+    id: hgatedeploy
     entrypoint: /bin/sh
     env:
       - PROJECT_ID=$PROJECT_ID
@@ -95,7 +93,6 @@ steps:
       - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
-      - fortio
       - hgate
     args:
       - -c
@@ -103,10 +100,9 @@ steps:
         make deploy/hgate
 
   # Deploy the canary, run tests
-  # Missing alpha command
-  #- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  # Missing alpha command in 'gcr.io/google.com/cloudsdktool/cloud-sdk', also too large.
+  # This is built with 'make gcp/builder-gcloud', alpine based.
   - name: gcr.io/wlhe-cr/gcloud-alpha
-    #- name: gcr.io/$PROJECT_ID/krun-builder:latest
     entrypoint: /bin/sh
     env:
       - PROJECT_ID=$PROJECT_ID
@@ -116,7 +112,7 @@ steps:
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
       - fortio
-      - k8sdeploy
+      - hgatedeploy
     args:
       - -c
       - |

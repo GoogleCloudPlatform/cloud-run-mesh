@@ -27,10 +27,11 @@ FORTIO_IMAGE?=${REPO}/fortio-mesh:latest
 # Namespace to attach to.
 WORKLOAD_NAMESPACE?=fortio
 
-WORKLOAD_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
+CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
 
-export WORKLOAD_SERVICE_ACCOUNT
+export CLOUDRUN_SERVICE_ACCOUNT
 export WORKLOAD_NAMESPACE
+export PROJECT_ID
 
 
 # Name of the workload. For CloudRun, this is also the default 'canonical service' and the name of the associated
@@ -41,7 +42,11 @@ export WORKLOAD_NAME
 SERVICE?=${WORKLOAD_NAME}
 
 # Create fortio+proxy image, deploy to CloudRun
-all: image push deploy
+all: image push deploy setup-service
+
+# Run first, to create the permissions
+setup: setup-gsa setup-rbac
+
 
 # Build the image using the proxy as base
 image:
@@ -51,7 +56,12 @@ push:
 	docker push ${FORTIO_IMAGE}
 
 # Enable the built-in sshd server, with cert auth. Temp, will move to a config map in cluster
-SSH_DEBUG_ARGS=--set-env-vars="SSH_AUTH=$(shell cat ~/.ssh/id_ecdsa.pub)"
+#SSH_DEBUG_ARGS=--set-env-vars="SSH_AUTH=$(shell cat ~/.ssh/id_ecdsa.pub)"
+
+# Useful for debugging:
+# Note: ^.^ changes the separator for env vars from : to .
+#  		 --set-env-vars="^.^ENVOY_LOG_LEVEL=debug,config:warn,main:warn,upstream:warn" \
+#  		 --set-env-vars="XDS_AGENT_DEBUG=googleca:debug" \
 
 # Deploy to cloudrun
 # Adding XDS_ADDR=READ_DOMAIN:443 will skip looking up for MCP configmap and use that address instead.
@@ -59,7 +69,7 @@ deploy:
 	gcloud alpha run deploy ${SERVICE} \
 		  --execution-environment=gen2 \
 		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
-		  --service-account=${WORKLOAD_SERVICE_ACCOUNT} \
+		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
           --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
          \
          --allow-unauthenticated \
@@ -67,43 +77,28 @@ deploy:
          --use-http2 \
          --port 15009 \
          \
-         --image ${FORTIO_IMAGE} \
-         --set-env-vars="CLUSTER_LOCATION=${CLUSTER_LOCATION}" \
-         --set-env-vars="CLUSTER_NAME=${CLUSTER_NAME}" \
-  		 ${SSH_DEBUG_ARGS} ${EXTRA} \
+         --concurrency 10 --timeout 900 --cpu 1 --memory 1G \
+         --min-instances 1 \
+         \
+		--image ${FORTIO_IMAGE} \
+		\
+  		 ${SSH_DEBUG_ARGS} ${FORTIO_DEPLOY_EXTRA} \
  		 --set-env-vars="DEPLOY=$(shell date +%y%m%d-%H%M)"
 
-deploy-auto:
-	gcloud alpha run deploy ${SERVICE}-auto \
-		  --execution-environment=gen2 \
-		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
-		  --service-account=${WORKLOAD_SERVICE_ACCOUNT} \
-          --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
-         \
-         --allow-unauthenticated \
-         \
-         --use-http2 \
-         --port 15009 \
-         \
-         --image ${FORTIO_IMAGE} \
-         ${SSH_DEBUG_ARGS} ${EXTRA} \
- 		 --set-env-vars="DEPLOY=$(shell date +%y%m%d-%H%M)"
-
+# This is the barebone deploy, with auth enabled
 deploy-auth:
 	gcloud alpha run deploy ${SERVICE}-auth \
 		  --execution-environment=gen2 \
 		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
-		  --service-account=${WORKLOAD_SERVICE_ACCOUNT} \
+		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
           --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
          \
          --use-http2 \
          --port 15009 \
          \
          --image ${FORTIO_IMAGE} \
-         --set-env-vars="CLUSTER_LOCATION=${CLUSTER_LOCATION}" \
-         --set-env-vars="CLUSTER_NAME=${CLUSTER_NAME}" \
-  		 ${SSH_DEBUG_ARGS} ${EXTRA} \
- 		 --set-env-vars="DEPLOY=$(shell date +%y%m%d-%H%M)"
+  		 ${FORTIO_DEPLOY_EXTRA}
+
 
 # Port 14009 for using envoy for ingress
 # Port 8080 for going directly to the app
@@ -114,23 +109,29 @@ pull:
 	docker pull ${GOLDEN_IMAGE}
 
 # SSH to the deployed CloudRun using HBONE
-ssh: CR_URL=$(shell gcloud run services describe ${SERVICE} --format="value(status.address.url)")
+ssh: CR_URL=$(shell gcloud run services --project ${PROJECT_ID} --region ${REGION} describe ${SERVICE} --format="value(status.address.url)")
 ssh:
-	 ssh -F /dev/null -v \
+	ssh  -F /dev/null  \
         -o StrictHostKeyChecking=no -o "UserKnownHostsFile /dev/null" \
  	    -o ProxyCommand='hbone ${CR_URL}:443/_hbone/22' \
      	root@proxybase ${SSH_ARGS}
 
-config_dump: CR_URL=$(shell gcloud run services describe ${SERVICE} --format="value(status.address.url)")
+#config_dump: CR_URL=$(shell gcloud run services --project ${PROJECT_ID} --region ${REGION} describe ${SERVICE} --format="value(status.address.url)")
+#config_dump:
+##	 ssh -F /dev/null -o StrictHostKeyChecking=no \
+##        -o "UserKnownHostsFile /dev/null" \
+## 	    -o ProxyCommand='hbone ${CR_URL}/_hbone/22' -- sh curl localhost:15000/config_dump
+#	@curl -v  ${CR_URL}/fortio/fetch2/?url=http%3A%2F%2Flocalhost%3A15000%2Fconfig_dump
+
+config_dump: CR_URL=$(shell gcloud run services --project ${PROJECT_ID} --region ${REGION} describe ${SERVICE} --format="value(status.address.url)")
 config_dump:
-	 ssh -F /dev/null -o StrictHostKeyChecking=no \
+	 @ssh -F /dev/null -o StrictHostKeyChecking=no \
         -o "UserKnownHostsFile /dev/null" \
- 	    -o ProxyCommand='hbone ${CR_URL}/_hbone/22' -- sh curl localhost:15000/config_dump
+ 	    -o ProxyCommand='hbone ${CR_URL}:443/_hbone/22' -- sh curl localhost:15000/config_dump
+
+config_dump_ssh: config_dump
 
 ###########################################
-
-# Run first, to create the permissions
-setup: setup-gsa setup-rbac setup-sni
 
 setup-gsa:
 	gcloud --project ${PROJECT_ID} iam service-accounts create k8s-${WORKLOAD_NAMESPACE} \
@@ -142,21 +143,22 @@ setup-gsa:
 
 setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
 setup-hgate:
-	#	gcloud --project ${PROJECT_ID} projects add-iam-policy-binding \
-	#            ${PROJECT_ID} \
-	#            --member="serviceAccount:${PROJECT_ID}.svc.id.goog[istio-system/default]" \
-	#            --role="roles/run.invoker"
-	gcloud --project ${PROJECT_ID} projects add-iam-policy-binding \
-            ${PROJECT_ID} \
-            --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-meshdataplane.iam.gserviceaccount.com" \
-            --role="roles/run.invoker"
+	gcloud run services add-iam-policy-binding ${SERVICE} \
+      --member="serviceAccount:${PROJECT_ID}.svc.id.goog[istio-system/default]" \
+      --role='roles/run.invoker'
+	gcloud run services add-iam-policy-binding ${SERVICE} \
+      --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-meshdataplane.iam.gserviceaccount.com" \
+      --role='roles/run.invoker'
 
 setup-rbac:
 	kubectl create ns ${WORKLOAD_NAMESPACE} || true
 	cat ../../manifests/google-service-account-template.yaml | envsubst  | kubectl apply -f -
 
+# Setup service must be called after deploy
+setup-service: setup-sni
+
 # Setup the SNI routing for  SERVICE using hgate internal load balancer.
-setup-sni: K_SERVICE=$(shell gcloud run services describe ${SERVICE} --format="value(status.address.url)" | sed s,https://,, | sed s/.a.run.app// )
+setup-sni: K_SERVICE=$(shell gcloud run services --project ${PROJECT_ID} --region ${REGION} describe ${SERVICE} --format="value(status.address.url)" | sed s,https://,, | sed s/.a.run.app// )
 setup-sni: SNI_GATE_IP=$(shell kubectl -n istio-system get service internal-hgate -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 setup-sni:
 	echo Setting up SNI route ${K_SERVICE} ${SNI_GATE_IP}
@@ -178,7 +180,7 @@ logs-project:
 logs:
 	#gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.location = "us-central1" AND resource.labels.service_name="fortio${SUFFIX}"'
 	gcloud --project ${PROJECT_ID} logging read \
-		--format "csv(resource.labels.service_name,textPayload)" \
+		--format "csv(textPayload)" \
 		--freshness 1h \
  		'resource.type="cloud_run_revision" AND resource.labels.location = "us-central1" AND resource.labels.service_name="${SERVICE}"'
 

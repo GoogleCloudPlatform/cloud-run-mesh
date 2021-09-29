@@ -23,7 +23,7 @@ metadata:
   namespace: istio-system
   name: istio-autoconf
 rules:
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - "configmaps"
     resourceNames:
@@ -42,7 +42,7 @@ rules:
 
   # Temp - used to find connector internal/external LB IP.
   # Will be included in mesh-env
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - "services"
     verbs:

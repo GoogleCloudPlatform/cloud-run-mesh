@@ -15,6 +15,7 @@
 package sshd
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -26,7 +27,7 @@ import (
 // The 'special' thing about the built-in is that it's using SSH certificates - but they can also be created as
 // secrets or provisioned the same way as Istio certs, in files by the agent.
 
-var SshdConfig = `
+var sshdConfig = `
 Port 15022
 AddressFamily any
 ListenAddress 0.0.0.0
@@ -34,11 +35,11 @@ ListenAddress ::
 Protocol 2
 LogLevel INFO
 
-HostKey /tmp/sshd/ssh_host_ecdsa_key
+HostKey %s/id_ecdsa
 
 PermitRootLogin yes
 
-AuthorizedKeysFile	/tmp/sshd/authorized_keys
+AuthorizedKeysFile	%s/authorized_keys
 
 PasswordAuthentication no
 PermitUserEnvironment yes
@@ -57,7 +58,7 @@ type SSHDConfig struct {
 // This works for non-root users as well.
 //
 //
-func StartSSHD(cfg *SSHDConfig) {
+func StartSSHD(cfg *SSHDConfig) error {
 
 	// /usr/sbin/sshd -p 15022 -e -D -h ~/.ssh/ec-key.pem
 	// -f config
@@ -74,31 +75,38 @@ func StartSSHD(cfg *SSHDConfig) {
 		cfg.Port = 15022
 	}
 
-	os.Mkdir("/tmp/sshd", 0700)
+	pwd, _ := os.Getwd()
+	sshd := pwd + "/var/run/secrets"
+	os.Mkdir("./var/run/secrets", 0755)
+	os.Mkdir("./var/run/secrets/sshd", 0700)
 
-	// -q  - quiet
-	// -f - output file
-	// -N "" - no passphrase
-	// -t ecdsa - keytype
-	os.StartProcess("/usr/bin/ssh-keygen",
-		[]string{
-			"-q",
-			"-f",
-			"/tmp/sshd/ssh_host_ecdsa_key",
-			"-N",
-			"",
-			"-t",
-			"ecdsa",
-		},
-		&os.ProcAttr{})
+	if _, err := os.Stat(sshd + "/id_ecdsa"); os.IsNotExist(err) {
+		// -q  - quiet
+		// -f - output file
+		// -N "" - no passphrase
+		// -t ecdsa - keytype
+		os.StartProcess("/usr/bin/ssh-keygen",
+			[]string{
+				"-q",
+				"-f",
+				sshd + "/id_ecdsa",
+				"-N",
+				"",
+				"-t",
+				"ecdsa",
+			},
+			&os.ProcAttr{})
+	}
+	if _, err := os.Stat(sshd + "/sshd_config"); os.IsNotExist(err) {
+		ioutil.WriteFile(sshd+"/sshd_confing", []byte(fmt.Sprintf(sshdConfig, sshd, sshd)), 0700)
+	}
 
-	ioutil.WriteFile("/tmp/sshd/sshd_confing", []byte(SshdConfig), 0700)
-
-	os.StartProcess("/usr/sbin/sshd",
-		[]string{"-f", "/tmp/sshd/sshd_config",
+	_, err := os.StartProcess("/usr/sbin/sshd",
+		[]string{"-f", sshd + "/sshd_config",
 			"-e",
 			"-D",
 			"-p", strconv.Itoa(cfg.Port),
 		}, nil)
 
+	return err
 }

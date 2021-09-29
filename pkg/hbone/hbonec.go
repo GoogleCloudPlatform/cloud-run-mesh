@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"time"
 
 	"golang.org/x/net/http2"
 )
@@ -58,7 +59,7 @@ type Endpoint struct {
 	ExternalMTLSConfig *tls.Config
 
 	// SNI name to use - defaults to service name
-	SNI     string
+	SNI string
 
 	// SNIGate is the endpoint address of a SNI gate. It can be a normal Istio SNI, a SNI to HBone or other protocols,
 	// or a H2R gate.
@@ -75,6 +76,7 @@ type Endpoint struct {
 	tlsCon *tls.Conn
 	rt     *http2.ClientConn // http.RoundTripper
 }
+
 func (hb *HBone) NewClient(service string) *HBoneClient {
 	return &HBoneClient{hb: hb, ServiceAddr: service}
 }
@@ -110,7 +112,6 @@ func (hb *HBone) Proxy(svc string, hbURL string, stdin io.ReadCloser, stdout io.
 	c.MTLSConfig = innerTLS
 	return c.Proxy(context.Background(), stdin, stdout)
 }
-
 
 func (hc *Endpoint) dialTLS(ctx context.Context, addr string) (*tls.Conn, error) {
 	d := net.Dialer{} // TODO: customizations
@@ -148,6 +149,7 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		return hc.sniProxy(ctx, stdin, stdout)
 	}
 
+	t0 := time.Now()
 	// It is usually possible to pass stdin directly to NewRequest.
 	// Using a pipe allows getting stats.
 	i, o := io.Pipe()
@@ -161,11 +163,16 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 	var rt = hc.rt
 
 	if hc.hb.TokenCallback != nil {
-		t, err := hc.hb.TokenCallback(ctx, "https://" + r.URL.Host)
+		h := r.URL.Host
+		if strings.Contains(h, ":") && h[0] != '[' {
+			hn, _, _ := net.SplitHostPort(h)
+			h = hn
+		}
+		t, err := hc.hb.TokenCallback(ctx, "https://"+h)
 		if err != nil {
 			return err
 		}
-		r.Header.Set("Authorization", "Bearer " + t)
+		r.Header.Set("Authorization", "Bearer "+t)
 	}
 
 	if hc.rt == nil {
@@ -195,7 +202,7 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		// Expect system certificates.
 		if port == "443" || port == "" {
 			d := tls.Dialer{
-				Config:    &tls.Config{
+				Config: &tls.Config{
 					NextProtos: []string{"h2"},
 				},
 				NetDialer: &net.Dialer{},
@@ -245,14 +252,15 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		hc.rt = rt
 	}
 
-	//rt = hb.HTTPClientSystem.Transport
+	// This might be useful to make sure auth works - but it doesn't seem to help with the deadlock/canceling send.
+	//r.Header.Add("Expect", "100-continue")
 
 	res, err := rt.RoundTrip(r)
 	if err != nil {
 		return err
 	}
 
-	log.Println("client-rt", res.Status, res.Header)
+	t1 := time.Now()
 	ch := make(chan int)
 	var s1, s2 Stream
 
@@ -293,5 +301,6 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 
 	<-ch
 
+	log.Println("hbc-done", "status", res.Status, "conTime", t1.Sub(t0), "dur", time.Since(t1), "err", s2.Err, s1.Err, s2.InError, s1.InError)
 	return s2.Err
 }

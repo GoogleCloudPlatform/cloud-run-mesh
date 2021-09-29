@@ -16,14 +16,18 @@ package mesh
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -76,7 +80,7 @@ func resolvConfForRoot() {
 		log.Println("Failed to create alternate resolv.conf, DNS interception will fail ", err)
 		return
 	}
-	err = os.WriteFile("/etc/resolv.conf", []byte(`nameserver: 127.0.0.1`), 755)
+	err = os.WriteFile("/etc/resolv.conf", []byte(`nameserver: 127.0.0.1\nsearch: google.internal.`), 755)
 	if err != nil {
 		log.Println("Failed to create resolv.conf, DNS interception will fail ", err)
 		return
@@ -119,10 +123,28 @@ func (kr *KRun) agentCommand() *exec.Cmd {
 	if kr.AgentDebug != "" {
 		args = append(args, "--log_output_level="+kr.AgentDebug)
 	}
+	if os.Getenv("ENVOY_LOG_LEVEL") != "" {
+		args = append(args, "--proxyLogLevel="+os.Getenv("ENVOY_LOG_LEVEL"))
+	}
 	args = append(args, "--stsPort=15463")
 	return exec.Command("/usr/local/bin/pilot-agent", args...)
 }
 
+func (kr *KRun) WaitReady(max time.Duration) error {
+	t0 := time.Now()
+	for {
+		res, _ := http.Get("http://127.0.0.1:15021/healthz/ready")
+		if res != nil && res.StatusCode == 200 {
+			log.Println("Ready")
+			return nil
+		}
+
+		if time.Since(t0) > max {
+			return errors.New("Timeout waiting for ready")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
 
 // StartIstioAgent creates the env and starts istio agent.
 // If running as root, will also init iptables and change UID to 1337.
@@ -136,6 +158,7 @@ func (kr *KRun) StartIstioAgent() error {
 		prefix = ""
 	}
 	os.MkdirAll(prefix+"/etc/istio/proxy", 0755)
+	//os.MkdirAll(prefix+"/var/lib/istio/envoy", 0755)
 
 	// Save the istio certificates - for proxyless or app use.
 	os.MkdirAll(prefix+"/var/run/secrets/istio", 0755)
@@ -143,6 +166,7 @@ func (kr *KRun) StartIstioAgent() error {
 	os.MkdirAll(prefix+"/var/run/secrets/istio.io", 0755)
 	os.MkdirAll(prefix+"/etc/istio/pod", 0755)
 	if os.Getuid() == 0 {
+		//os.Chown(prefix+"/var/lib/istio/envoy", 1337, 1337)
 		os.Chown(prefix+"/var/run/secrets/istio.io", 1337, 1337)
 		os.Chown(prefix+"/var/run/secrets/istio", 1337, 1337)
 		os.Chown(prefix+"/var/run/secrets/mesh", 1337, 1337)
@@ -178,15 +202,33 @@ func (kr *KRun) StartIstioAgent() error {
 	if strings.HasSuffix(kr.XDSAddr, ":15012") {
 		env = addIfMissing(env, "ISTIOD_SAN", "istiod.istio-system.svc")
 	} else {
-		env = addIfMissing(env,"XDS_ROOT_CA", "SYSTEM")
+		env = addIfMissing(env, "XDS_ROOT_CA", "SYSTEM")
 		env = addIfMissing(env, "PILOT_CERT_PROVIDER", "system")
-		env = addIfMissing(env,"CA_ROOT_CA", "SYSTEM")
+		env = addIfMissing(env, "CA_ROOT_CA", "SYSTEM")
 	}
-	env = addIfMissing(env,"POD_NAMESPACE", kr.Namespace)
-	// TODO: Pod name should be the unique name, need to add some elements from
-	// K_REVISION (ex: fortio-cr-00011-duq) and metadata.
-	env = addIfMissing(env,"POD_NAME", kr.Name)
+	env = addIfMissing(env, "POD_NAMESPACE", kr.Namespace)
 
+	// Pod name MUST be an unique name - it is used in stackdriver which requires this ( errors on 'ordered updates' and
+	//  lost data otherwise)
+	// This also shows up in 'istioctl ps' and in istio logs
+
+	// K_REVISION (ex: fortio-cr-00011-duq) and metadata.
+	podName := os.Getenv("K_REVISION")
+	if podName == "" {
+		podName = kr.Name
+	}
+	if kr.InstanceID == "" {
+		podName = podName + "-" + strconv.Itoa(time.Now().Second())
+	} else if len(kr.InstanceID) > 8 {
+		podName = podName + "-" + kr.InstanceID[0:8]
+	} else {
+		podName = podName + "-" + kr.InstanceID
+	}
+	env = addIfMissing(env, "POD_NAME", podName)
+	if kr.ProjectNumber != "" {
+		env = addIfMissing(env, "ISTIO_META_MESH_ID", "proj-"+kr.ProjectNumber)
+	}
+	env = addIfMissing(env, "CANONICAL_SERVICE", kr.Name)
 	kr.initLabelsFile()
 
 	env = addIfMissing(env, "OUTPUT_CERTS", prefix+"/var/run/secrets/istio.io/")
@@ -224,7 +266,7 @@ func (kr *KRun) StartIstioAgent() error {
 
 	// MCP config
 	// The following 2 are required for MeshCA.
-	env = addIfMissing(env, "GKE_CLUSTER_URL" ,fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
+	env = addIfMissing(env, "GKE_CLUSTER_URL", fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
 		kr.ProjectId, kr.ClusterLocation, kr.ClusterName))
 	env = addIfMissing(env, "GCP_METADATA", fmt.Sprintf("%s|%s|%s|%s",
 		kr.ProjectId, kr.ProjectNumber, kr.ClusterName, kr.ClusterLocation))
@@ -235,6 +277,8 @@ func (kr *KRun) StartIstioAgent() error {
 
 	env = addIfMissing(env, "JWT_POLICY", "third-party-jwt")
 
+	// Fetch ProxyConfig over XDS, merge the extra root certificates
+	env = addIfMissing(env, "PROXY_CONFIG_XDS_AGENT", "true")
 
 	env = addIfMissing(env, "TRUST_DOMAIN", kr.TrustDomain)
 
@@ -259,30 +303,6 @@ func (kr *KRun) StartIstioAgent() error {
 	// WIP: automate getting the CR addr (or have Thetis handle it)
 	// For example by reading a configmap in cluster
 	//--set-env-vars="ISTIO_META_CLOUDRUN_ADDR=asm-stg-asm-cr-asm-managed-rapid-c-2o26nc3aha-uc.a.run.app:443" \
-
-	// If set, let istiod generate bootstrap
-	// TODO: remove, probably not needed.
-	bootstrapIstiod := os.Getenv("BOOTSTRAP_XDS_AGENT")
-	if bootstrapIstiod == "" {
-		if _, err := os.Stat(prefix + "/var/lib/istio/envoy/hbone_tmpl.json"); os.IsNotExist(err) {
-			os.MkdirAll(prefix+"/var/lib/istio/envoy/", 0755)
-			err = ioutil.WriteFile(prefix+"/var/lib/istio/envoy/envoy_bootstrap_tmpl.json",
-				[]byte(EnvoyBootstrapTmpl), 0755)
-			if err != nil {
-				panic(err)
-			}
-		} else {
-			custom, err := ioutil.ReadFile(prefix + "/var/lib/istio/envoy/hbone_tmpl.json")
-			if err != nil {
-				panic(err) // no point continuing
-			}
-			err = ioutil.WriteFile(prefix+"/var/lib/istio/envoy/envoy_bootstrap_tmpl.json",
-				[]byte(custom), 0755)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
 
 	// Environment detection: if the docker image or VM does not include an Envoy use the 'grpc agent' mode,
 	// i.e. only get certificate.
@@ -358,7 +378,7 @@ func addIfMissing(env []string, key, val string) []string {
 		return env
 	}
 
-	return append(env, key + "=" + val)
+	return append(env, key+"="+val)
 }
 
 func (kr *KRun) Exit(code int) {
@@ -385,9 +405,10 @@ istio="%s"
 security.istio.io/tlsMode="istio"
 app="%s"
 service.istio.io/canonical-name="%s"
+environment="cloud-run-mesh"
 `, kr.Name, kr.Name)
 	}
-	os.MkdirAll("./etc/istio/pod",755)
+	os.MkdirAll("./etc/istio/pod", 755)
 	err := ioutil.WriteFile("./etc/istio/pod/labels", []byte(labels), 0777)
 	if err == nil {
 		log.Println("Written labels: ", labels)

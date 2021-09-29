@@ -22,3 +22,4 @@ resources:
   - hgate/service.yaml
   - hgate/deployment.yaml
   - hgate/istio.yaml
+  - hgate/telemetry-stackdriver-patch.yaml

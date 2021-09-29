@@ -15,21 +15,25 @@
 # Config for routing to a CloudRun service using the SNI gateway.
 #
 # This will be automated as a controller, but useful to see the actual config and also
-# debug or create custom entries.
-#
-# K_SERVICE is the first component of the CloudRun URL - example fortio-istio-icq63pqnqq-uc
-# WORKLOAD_NAME is the name of the CloudRun service - in this case fortio-istio
+# debug or create custom entries. The controller will operate on 'create if it doesn't exist' mode, i.e. users can
+# either create their own config (ahead of time) or edit or patch the created config.
+
+# K_SERVICE is the first component of the CloudRun URL - example fortio-cr-icq63pqnqq-uc
+# WORKLOAD_NAME is the name of the CloudRun service - in this case fortio-cr
 # WORKLOAD_NAMESPACE is the k8s namespace where the CR service is 'attached'
-#
-# Each CloudRun deployment corresponds to one Service - the new K8S Gateway API is
-# not using DestinationRule-style subsetting, and we want to represent each CR region
-# as a separate subset.
+
+# TODO: replace K_SERVICE with K_SERVICE_BASE_URL, WORKLOAD_NAME with K_SERVICE
+
+# Each CloudRun service is mapped to one Service. The new K8S Gateway API is
+# not using DestinationRule-style subsetting, we want to represent each CR region
+# as a separate subset that can be selected with the Gateawy API or VirtualService.
 apiVersion: v1
 kind: Service
 metadata:
   name: ${K_SERVICE}
   namespace: ${WORKLOAD_NAMESPACE}
   labels:
+    service.istio.io/canonical-name: ${WORKLOAD_NAME}
     mesh-cloudrun: ${WORKLOAD_NAME}
 spec:
   # Service name matches the actual service name in CloudRun.
@@ -44,38 +48,69 @@ spec:
       targetPort: 15443
   selector:
     app: ${WORKLOAD_NAME}
-
+---
+# When doing auto-registration, the Service and VirtualService should be 'create if it doesn't exist', i.e. user can
+# customize or replace it, we'll just create the initial/default version.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${WORKLOAD_NAME}
+  namespace: ${WORKLOAD_NAMESPACE}
+  labels:
+    service.istio.io/canonical-name: ${WORKLOAD_NAME}
+    mesh-cloudrun: ${WORKLOAD_NAME}
+spec:
+  ports:
+    - port: 8080
+      name: http
+      targetPort: 15443
+  selector:
+    app: ${WORKLOAD_NAME}
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: ${WORKLOAD_NAME}
+  namespace: ${WORKLOAD_NAMESPACE}
+  labels:
+    service.istio.io/canonical-name: ${WORKLOAD_NAME}
+    mesh-cloudrun: ${WORKLOAD_NAME}
+spec:
+  hosts:
+    - ${WORKLOAD_NAME}
+    - ${WORKLOAD_NAME}.${WORKLOAD_NAMESPACE}
+    - ${WORKLOAD_NAME}.${WORKLOAD_NAMESPACE}.svc
+  http:
+    - route:
+        - destination:
+            host: ${K_SERVICE}
 ---
 # The registered cloudrun service only support mTLS, don't generate extra
 # config for 'permissive' or plain.
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
 metadata:
-  name: ${WORKLOAD_NAME}
+  name: ${K_SERVICE}
   namespace: ${WORKLOAD_NAMESPACE}
 spec:
   host: ${K_SERVICE}.fortio.svc.cluster.local
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: ${K_SERVICE}
+  namespace: ${WORKLOAD_NAMESPACE}
+spec:
+  selector:
+    matchLabels:
+      app: ${WORKLOAD_NAME}
+  portLevelMtls:
+    15003:
+      mode: STRICT
 
-#---
-## WorkloadGroup associates GSA to KSA - moved to separate google-service-account-template
-#apiVersion: networking.istio.io/v1alpha3
-#kind: WorkloadGroup
-#metadata:
-#  name: ${WORKLOAD_NAME}
-#  namespace: ${WORKLOAD_NAMESPACE}
-#spec:
-#  metadata:
-#    labels:
-#      app: ${WORKLOAD_NAME}
-#    annotations:
-#      security.cloud.google.com/IdentityProvider: google
-#  template:
-#    ports:
-#      http: 8080
-#    serviceAccount: k8s-fortio@wlhe-cr.iam.gserviceaccount.com
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: WorkloadEntry
@@ -84,6 +119,7 @@ metadata:
   namespace: ${WORKLOAD_NAMESPACE}
 spec:
   labels:
+    service.istio.io/canonical-name: ${WORKLOAD_NAME}
     app: ${WORKLOAD_NAME}
   serviceAccount: default
   address: ${SNI_GATE_IP}
@@ -96,7 +132,8 @@ kind: ServiceEntry
 metadata:
   namespace: ${WORKLOAD_NAMESPACE}
   name: ${K_SERVICE}
-#  labels:
+  labels:
+     service.istio.io/canonical-name: ${WORKLOAD_NAME}
 #    topology.istio.io/network: hbone
 spec:
   hosts:
@@ -111,3 +148,29 @@ spec:
   workloadSelector:
     labels:
       app: ${WORKLOAD_NAME}
+
+---
+# Sidecar entry - when automating, it'll be 'create if missing', not reconciled, i.e. users can modify it.
+# This is needed until Istiod has native support for HBONE.
+apiVersion: networking.istio.io/v1alpha3
+kind: Sidecar
+metadata:
+  name: ${K_SERVICE}
+  namespace: ${WORKLOAD_NAMESPACE}
+spec:
+  workloadSelector:
+    labels:
+      app: ${WORKLOAD_NAME}
+  #  egress:
+  #    - hosts:
+  #        # For now, visibility only on same namespace and istio-system.
+  #        - ${WORKLOAD_NAMESPACE}/*
+  #        - istio-system/*
+  ingress:
+    - port:
+        number: 15003
+        protocol: HTTP
+        name: http-testsidecar2
+      bind: 127.0.0.1
+      defaultEndpoint: 127.0.0.1:8080
+      captureMode: NONE

@@ -24,4 +24,3 @@ import _ "embed"
 
 //go:embed meshca.pem
 var MeshCA string
-

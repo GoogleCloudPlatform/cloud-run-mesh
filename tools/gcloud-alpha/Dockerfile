@@ -23,7 +23,7 @@ FROM gcr.io/google.com/cloudsdktool/cloud-sdk:353.0.0-alpine
 # Currently required for --execution-environment
 RUN gcloud components install -q alpha kubectl
 
-RUN apk update && apk add gcc bash musl-dev openssl-dev ca-certificates make && update-ca-certificates
+RUN apk update && apk add gcc bash musl-dev openssl-dev ca-certificates make gettext && update-ca-certificates
 
 COPY --from=go /usr/local/go /usr/local/
 

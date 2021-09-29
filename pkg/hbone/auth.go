@@ -44,10 +44,10 @@ const (
 type Auth struct {
 	// Will attempt to load certificates from this directory, defaults to
 	// "./var/run/secrets/istio.io/"
-	CertDir   string
+	CertDir string
 
 	// Current certificate, after calling GetCertificate("")
-	Cert          *tls.Certificate
+	Cert *tls.Certificate
 
 	// MeshTLSConfig is a tls.Config that requires mTLS with a spiffee identity,
 	// using the configured roots, trustdomains.
@@ -62,8 +62,8 @@ type Auth struct {
 
 	// Namespace and SA are extracted from the certificate or set by user.
 	// Namespace is used to verify peer certificates
-	Namespace   string
-	SA          string
+	Namespace string
+	SA        string
 
 	AllowedNamespaces []string
 
@@ -83,7 +83,7 @@ type Auth struct {
 //
 // TODO: ./etc/certs support: krun should copy the files, for consistency (simper code for frameworks).
 // TODO: periodic reload
-func NewAuthFromDir(dir string) (*Auth, error){
+func NewAuthFromDir(dir string) (*Auth, error) {
 	a := NewAuth()
 	a.CertDir = dir
 	err := a.waitAndInitFromDir()
@@ -93,7 +93,7 @@ func NewAuthFromDir(dir string) (*Auth, error){
 	return a, nil
 }
 
-func NewAuth() (*Auth){
+func NewAuth() *Auth {
 	a := &Auth{
 		TrustedCertPool: x509.NewCertPool(),
 	}
@@ -242,7 +242,7 @@ func (a *Auth) waitAndInitFromDir() error {
 func (a *Auth) Spiffee() (*url.URL, string, string, string) {
 	cert, err := x509.ParseCertificate(a.Cert.Certificate[0])
 	if err != nil {
-		return nil, "","",""
+		return nil, "", "", ""
 	}
 	if len(cert.URIs) > 0 {
 		c0 := cert.URIs[0]
@@ -251,7 +251,7 @@ func (a *Auth) Spiffee() (*url.URL, string, string, string) {
 			return c0, c0.Host, pathComponetns[2], pathComponetns[4]
 		}
 	}
-	return nil,"","",""
+	return nil, "", "", ""
 }
 
 func (a *Auth) ID() string {
@@ -259,7 +259,7 @@ func (a *Auth) ID() string {
 	return su.String()
 }
 
-func (a *Auth) setSpiffe()  {
+func (a *Auth) setSpiffe() {
 	_, a.TrustDomain, a.Namespace, a.SA = a.Spiffee()
 }
 
@@ -299,23 +299,23 @@ func (a *Auth) NewCSR(kty string, trustDomain, san string) (privPEM []byte, csrP
 	//	}
 	//	privPem = pem.EncodeToMemory(&pem.Block{Type: blockTypePKCS8PrivateKey, Bytes: encodedKey})
 	//} else {
-		switch k := priv.(type) {
-		case *rsa.PrivateKey:
-			encodedKey = x509.MarshalPKCS1PrivateKey(k)
-			privPEM = pem.EncodeToMemory(&pem.Block{Type: blockTypeRSAPrivateKey, Bytes: encodedKey})
-		case *ecdsa.PrivateKey:
-			encodedKey, err = x509.MarshalECPrivateKey(k)
-			if err != nil {
-				return nil, nil, err
-			}
-			privPEM = pem.EncodeToMemory(&pem.Block{Type: blockTypeECPrivateKey, Bytes: encodedKey})
+	switch k := priv.(type) {
+	case *rsa.PrivateKey:
+		encodedKey = x509.MarshalPKCS1PrivateKey(k)
+		privPEM = pem.EncodeToMemory(&pem.Block{Type: blockTypeRSAPrivateKey, Bytes: encodedKey})
+	case *ecdsa.PrivateKey:
+		encodedKey, err = x509.MarshalECPrivateKey(k)
+		if err != nil {
+			return nil, nil, err
 		}
+		privPEM = pem.EncodeToMemory(&pem.Block{Type: blockTypeECPrivateKey, Bytes: encodedKey})
+	}
 	//}
 
 	return
 }
 
-func GenCSRTemplate(trustDomain, san string) (*x509.CertificateRequest) {
+func GenCSRTemplate(trustDomain, san string) *x509.CertificateRequest {
 	template := &x509.CertificateRequest{
 		Subject: pkix.Name{
 			Organization: []string{trustDomain},
@@ -340,7 +340,6 @@ func (a *Auth) AddRoots(rootCertPEM []byte) error {
 		return err
 	}
 	for _, c := range rootCAs {
-		log.Println("Adding root CA: ", c.Subject)
 		a.TrustedCertPool.AddCert(c)
 	}
 	return nil
@@ -431,7 +430,6 @@ func (a *Auth) initTLS() {
 			return errors.New("Namespace not allowed")
 		},
 		NextProtos: []string{"istio", "h2"},
-
 	}
 }
 
@@ -467,7 +465,6 @@ func PublicKey(key crypto.PrivateKey) crypto.PublicKey {
 
 	return nil
 }
-
 
 // SignCertDER uses caPrivate to sign a cert, returns the DER format.
 // Used primarily for tests with self-signed cert.
@@ -531,7 +528,7 @@ type CA struct {
 
 func NewCA(trust string) *CA {
 	ca, _ := rsa.GenerateKey(rand.Reader, 2048)
-	caCert, _ := rootCert(trust, "rootCA",	ca, ca)
+	caCert, _ := rootCert(trust, "rootCA", ca, ca)
 	return &CA{ca: ca, CACert: caCert, TrustDomain: trust,
 		prefix: "spiffe://" + trust + "/ns/",
 	}
@@ -540,8 +537,8 @@ func NewCA(trust string) *CA {
 func (ca *CA) NewID(ns, sa string) *Auth {
 	nodeID := &Auth{
 		TrustDomain: ca.TrustDomain,
-		Namespace: ns,
-		SA: sa,
+		Namespace:   ns,
+		SA:          sa,
 	}
 	caCert := ca.CACert
 	nodeID.Cert = ca.NewTLSCert(ns, sa)
@@ -555,7 +552,7 @@ func (ca *CA) NewID(ns, sa string) *Auth {
 
 func (ca *CA) NewTLSCert(ns, sa string) *tls.Certificate {
 	nodeKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-	csr := CertTemplate(ca.TrustDomain, ca.prefix  + ns + "/sa/" + sa)
+	csr := CertTemplate(ca.TrustDomain, ca.prefix+ns+"/sa/"+sa)
 	cert, _, _ := newTLSCertAndKey(csr, nodeKey, ca.ca, ca.CACert)
 	return cert
 }
@@ -594,9 +591,9 @@ func rootCert(org, cn string, priv crypto.PrivateKey, ca crypto.PrivateKey) (*x5
 			CommonName:   cn,
 			Organization: []string{org},
 		},
-		NotBefore: notBefore,
-		NotAfter:  notAfter,
-		IsCA: true,
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		IsCA:                  true,
 		KeyUsage:              x509.KeyUsageCertSign,
 		BasicConstraintsValid: true,
 	}
@@ -607,4 +604,3 @@ func rootCert(org, cn string, priv crypto.PrivateKey, ca crypto.PrivateKey) (*x5
 	rootCA, _ := x509.ParseCertificates(certDER)
 	return rootCA[0], certDER
 }
-

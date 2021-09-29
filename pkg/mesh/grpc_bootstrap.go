@@ -48,7 +48,7 @@ const (
 // TODO use structs from gRPC lib if created/exported
 type Bootstrap struct {
 	XDSServers                 []XdsServer                    `json:"xds_servers,omitempty"`
-	Node                       *Node                   `json:"node,omitempty"`
+	Node                       *Node                          `json:"node,omitempty"`
 	CertProviders              map[string]CertificateProvider `json:"certificate_providers,omitempty"`
 	ServerListenerNameTemplate string                         `json:"server_listener_resource_name_template,omitempty"`
 }
@@ -115,8 +115,8 @@ func LoadBootstrap(file string) (*Bootstrap, error) {
 // Duplicated from github.com/envoyproxy/go-control-plane/envoy/config/core/v3
 // to avoid deps to large package. Only what we use.
 type Node struct {
-	Id       string    `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Locality *Locality `protobuf:"bytes,4,opt,name=locality,proto3" json:"locality,omitempty"`
+	Id       string           `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Locality *Locality        `protobuf:"bytes,4,opt,name=locality,proto3" json:"locality,omitempty"`
 	Metadata *structpb.Struct `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 }
 

@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"github.com/costinm/cert-ssh/ssh"
 	"github.com/costinm/cloud-run-mesh/pkg/mesh"
@@ -29,7 +30,9 @@ func init() {
 }
 
 func InitDebug(kr *mesh.KRun) {
-	sshCM, _ := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
-
+	sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
+	if err != nil {
+		log.Println("SSH config error", err)
+	}
 	ssh.InitFromSecret(sshCM, kr.Namespace)
 }

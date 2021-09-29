@@ -47,8 +47,8 @@ var (
 
 // RegisterOpts contains all the metrics to register. Metrics may be nil.
 type RegisterOpts struct {
-	RequestLatency        LatencyMetric
-	RequestResult         ResultMetric
+	RequestLatency LatencyMetric
+	RequestResult  ResultMetric
 }
 
 var registerMetrics sync.Once

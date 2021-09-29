@@ -30,7 +30,7 @@ import (
 
 // TODO: benchmark different sizes.
 var bufSize = 32 * 1024
-var Debug = true
+var Debug = false
 
 var (
 	// createBuffer to get a buffer. io.Copy uses 32k.
@@ -47,6 +47,7 @@ type CloseWriter interface {
 }
 
 var streamIDs int64 = 0
+
 type Stream struct {
 	Written int64
 	Err     error
@@ -60,19 +61,19 @@ type Stream struct {
 func proxy(ctx context.Context, cin io.Reader, cout io.WriteCloser, sin io.Reader, sout io.WriteCloser) error {
 	ch := make(chan int)
 	s1 := Stream{
-		ID: "client-o",
+		ID:  "client-o",
 		Dst: sout,
 		Src: cin,
 	}
 	go s1.CopyBuffered(ch, true)
 
 	s2 := Stream{
-		ID: "client-i",
+		ID:  "client-i",
 		Dst: cout,
 		Src: sin,
 	}
 	s2.CopyBuffered(nil, true)
-	<- ch
+	<-ch
 	if s1.Err != nil {
 		return s1.Err
 	}
@@ -174,7 +175,6 @@ func (s Stream) CopyBuffered(ch chan int, close bool) {
 	}
 }
 
-
 func closeWriter(dst io.Writer) error {
 	if cw, ok := dst.(CloseWriter); ok {
 		return cw.CloseWrite()
@@ -183,23 +183,22 @@ func closeWriter(dst io.Writer) error {
 		return c.Close()
 	}
 	if rw, ok := dst.(http.ResponseWriter); ok {
-				// Server side HTTP stream. For client side, FIN can be sent by closing the pipe (or
-				// request body). For server, the FIN will be sent when the handler returns - but
-				// this only happen after request is completed and body has been read. If server wants
-				// to send FIN first - while still reading the body - we are in trouble.
+		// Server side HTTP stream. For client side, FIN can be sent by closing the pipe (or
+		// request body). For server, the FIN will be sent when the handler returns - but
+		// this only happen after request is completed and body has been read. If server wants
+		// to send FIN first - while still reading the body - we are in trouble.
 
-				// That means HTTP2 TCP servers provide no way to send a FIN from server, without
-				// having the request fully read.
+		// That means HTTP2 TCP servers provide no way to send a FIN from server, without
+		// having the request fully read.
 
-				// This works for H2 with the current library - but very tricky, if not set as trailer.
-				rw.Header().Set("X-Close", "0")
-				rw.(http.Flusher).Flush()
-				return nil
+		// This works for H2 with the current library - but very tricky, if not set as trailer.
+		rw.Header().Set("X-Close", "0")
+		rw.(http.Flusher).Flush()
+		return nil
 	}
 	log.Println("Server out not Closer nor CloseWriter nor ResponseWriter", dst)
 	return nil
 }
-
 
 // HTTPConn wraps a http server request/response in a net.Conn
 type HTTPConn struct {
@@ -216,7 +215,7 @@ func (hc *HTTPConn) Read(b []byte) (n int, err error) {
 // Will make sure Flush() is called - normal http is buffering.
 func (hc *HTTPConn) Write(b []byte) (n int, err error) {
 	n, err = hc.w.Write(b)
-	if f, ok :=hc.w.(http.Flusher); ok {
+	if f, ok := hc.w.(http.Flusher); ok {
 		f.Flush()
 	}
 	return
@@ -328,7 +327,6 @@ func NewBufferReader(in io.Reader) *BufferReader {
 	buf1 := bufferPoolCopy.Get().([]byte)
 	return &BufferReader{buf: buf1, Reader: in}
 }
-
 
 func (s *BufferReader) Fill(i int) ([]byte, error) {
 	if s.rend >= i {

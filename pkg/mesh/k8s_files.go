@@ -34,9 +34,11 @@ func (kr *KRun) GetCM(ctx context.Context, ns string, name string) (map[string]s
 func (kr *KRun) GetSecret(ctx context.Context, ns string, name string) (map[string][]byte, error) {
 	s, err := kr.Client.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
+		if Is404(err) {
+			err = nil
+		}
 		return map[string][]byte{}, err
 	}
 
 	return s.Data, nil
 }
-

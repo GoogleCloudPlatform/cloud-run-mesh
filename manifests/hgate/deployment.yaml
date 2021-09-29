@@ -37,7 +37,8 @@ spec:
 
         # Use default injection. If Istio is not installed in the cluster, will
         # auto-detect.
-        sidecar.istio.io/inject: "true"
+        #sidecar.istio.io/inject: "true"
+        #istio.io/rev: asm-managed
     spec:
       containers:
         - name: istio-proxy
@@ -61,8 +62,8 @@ spec:
               cpu: 10m
               memory: "512Mi"
             limits:
-              cpu: "1"
-              memory: "1G"
+              cpu: "4"
+              memory: "8G"
 
 
 

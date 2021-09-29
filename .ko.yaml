@@ -12,7 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-defaultBaseImage: gcr.io/istio-testing/proxyv2:latest
+# Custom build from master
+defaultBaseImage: gcr.io/wlhe-cr/proxyv2:main
+
+# defaultBaseImage: gcr.io/istio-testing/proxyv2:1.12-alpha.9bbb2ee34b84ed89a3b271df9af53915ebc9e721
+
+# Broken on Sept 15, using previous until the fix is merged.
+#defaultBaseImage: gcr.io/istio-testing/proxyv2:latest
+
+# Works, but 1.12 has few extra fixes for iptable-less
+#defaultBaseImage: istio/proxyv2:1.11.2
+
+# 1.10 doesn't work
 
 # Modified file
 #defaultBaseImage: gcr.io/wlhe-cr/proxyv2:cloudrun

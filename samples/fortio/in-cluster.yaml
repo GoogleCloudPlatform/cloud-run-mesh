@@ -47,6 +47,7 @@ spec:
         sidecar.istio.io/privileged: "true"
         #sidecar.istio.io/debug: "true"
         #sidecar.istio.io/componentLogLevel: "config:trace,http2:trace,init:trace,grpc:trace,upstream:trace"
+        sidecar.istio.io/proxyImage: gcr.io/wlhe-cr/proxyv2:main
 
         # Override container ports
         #traffic.sidecar.istio.io/includeInboundPorts: "*"
@@ -54,26 +55,28 @@ spec:
       labels:
         app: fortio
         version: v1
-        sidecar.istio.io/inject: "true"
+        # This selects the default cluster injection - if the cluster is MCP, it is best to make it default.
+        #sidecar.istio.io/inject: "true"
+        istio.io/rev: "asm-managed"
     spec:
       containers:
-      - name: fortio
-        image: costinm/fortio:latest
-        ports:
-         - containerPort: 8080
-           name: http
-         - containerPort: 8081
-           name: grpc
-         - containerPort: 8079
-        args:
-          - server
-        resources:
-          requests:
-            cpu: 10m
-            memory: "512Mi"
-          limits:
-            cpu: "2"
-            memory: "1G"
+        - name: fortio
+          image: costinm/fortio:latest
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8081
+              name: grpc
+            - containerPort: 8079
+          args:
+            - server
+          resources:
+            requests:
+              cpu: 10m
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "1G"
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule

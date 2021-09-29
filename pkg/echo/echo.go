@@ -29,7 +29,7 @@ type EchoHandler struct {
 	Received int
 }
 
-func (e *EchoHandler) handle(str net.Conn)  {
+func (e *EchoHandler) handle(str net.Conn) {
 	d := make([]byte, 2048)
 
 	//si := GetStreamInfo(str)
@@ -70,7 +70,7 @@ func (e *EchoHandler) handle(str net.Conn)  {
 		}
 		if d[0] == 0 {
 			if wc, ok := str.(interface {
-			CloseWrite() error
+				CloseWrite() error
 			}); ok {
 				wc.CloseWrite()
 				writeClosed = true
@@ -114,5 +114,3 @@ func (hb *EchoHandler) serve(l net.Listener, f func(conn net.Conn)) {
 		go f(remoteConn)
 	}
 }
-
-

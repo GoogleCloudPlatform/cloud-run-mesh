@@ -2,12 +2,11 @@ module github.com/costinm/cloud-run-mesh
 
 go 1.16
 
-//replace github.com/costinm/hbone => ../hbone
 //replace github.com/costinm/cert-ssh/ssh => ../cert-ssh/ssh
 
 require (
 	cloud.google.com/go v0.84.0
-	github.com/costinm/cert-ssh/ssh v0.0.0-20210825233239-a732a424ec23
+	github.com/costinm/cert-ssh/ssh v0.0.0-20210914000841-64495e35bb80
 	github.com/creack/pty v1.1.13
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.1.2

@@ -22,7 +22,7 @@ metadata:
   namespace: istio-system
   name: autoregistration
 rules:
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - "services"
       - "endpoints"
@@ -31,12 +31,12 @@ rules:
   - apiGroups: [ "networking.istio.io" ]
     verbs: [ "get", "watch", "list", "update", "patch", "create", "delete" ]
     resources: [ "workloadentries", "workloadgroups" ]
-  - apiGroups: [""]
-    resources: ["services", "endpoints"]
-    verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
-  - apiGroups: ["discovery.k8s.io"]
-    resources: ["endpointslices"]
-    verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
+  - apiGroups: [ "" ]
+    resources: [ "services", "endpoints" ]
+    verbs: [ "get", "list", "watch", "update", "patch", "create", "delete" ]
+  - apiGroups: [ "discovery.k8s.io" ]
+    resources: [ "endpointslices" ]
+    verbs: [ "get", "list", "watch", "update", "patch", "create", "delete" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -44,7 +44,7 @@ metadata:
   namespace: istio-system
   name: discovery
 rules:
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - "services"
       - "endpoints"
@@ -53,12 +53,12 @@ rules:
   - apiGroups: [ "networking.istio.io" ]
     verbs: [ "get", "watch", "list", "update", "patch", "create", "delete" ]
     resources: [ "workloadentries", "workloadgroups" ]
-  - apiGroups: [""]
-    resources: ["pods", "nodes", "services", "namespaces", "endpoints"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["discovery.k8s.io"]
-    resources: ["endpointslices"]
-    verbs: ["get", "list", "watch"]
+  - apiGroups: [ "" ]
+    resources: [ "pods", "nodes", "services", "namespaces", "endpoints" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "discovery.k8s.io" ]
+    resources: [ "endpointslices" ]
+    verbs: [ "get", "list", "watch" ]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1

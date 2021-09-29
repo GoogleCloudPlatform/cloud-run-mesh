@@ -46,8 +46,7 @@ func UpdateSlice(ctx context.Context, kr *mesh.KRun, ns string,
 		ctx, es, metav1.UpdateOptions{})
 }
 
-
-type EventHandler struct{
+type EventHandler struct {
 	sg *MeshConnector
 }
 

@@ -24,8 +24,8 @@ import (
 	"time"
 
 	_ "github.com/costinm/cloud-run-mesh/pkg/gcp"
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
 	"github.com/costinm/cloud-run-mesh/pkg/hbone"
+	"github.com/costinm/cloud-run-mesh/pkg/mesh"
 )
 
 // TestSNIGate is e2e, requires a k8s connection (kube config is fine)

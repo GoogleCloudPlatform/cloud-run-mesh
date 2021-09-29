@@ -88,16 +88,15 @@ func (hb *HBone) HandleSNIConn(conn net.Conn) {
 	}
 }
 
-
 var sniErr = errors.New("Invalid TLS")
 
 type ClientHelloMsg struct { // 22
-	vers                uint16
+	vers uint16
 	//random              []byte
-	sessionId           []byte
+	sessionId []byte
 	//CipherSuites        []uint16
 	//compressionMethods  []uint8
-	ServerName          string
+	ServerName string
 	//ocspStapling        bool
 	//scts                bool
 	//supportedPoints     []uint8
@@ -111,14 +110,13 @@ const (
 	extensionServerName uint16 = 0
 )
 
-
 // TODO: if a session ID is provided, use it as a cookie and attempt
 // to find the corresponding host.
 // On server side generate session IDs !
 //
 // TODO: in mesh, use one cypher suite (TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 // maybe 2 ( since keys are ECDSA )
-func ParseTLS(acc *BufferReader) (string,error) {
+func ParseTLS(acc *BufferReader) (string, error) {
 	buf, err := acc.Fill(5)
 	if err != nil {
 		return "", err
@@ -133,7 +131,7 @@ func ParseTLS(acc *BufferReader) (string,error) {
 	}
 
 	rlen := int(buf[3])<<8 | int(buf[4])
-	if rlen > 16 * 1024 {
+	if rlen > 16*1024 {
 		log.Println("RLen ", rlen)
 		return "", sniErr
 	}
@@ -256,4 +254,3 @@ func ParseTLS(acc *BufferReader) (string,error) {
 
 	return m.ServerName, nil
 }
-

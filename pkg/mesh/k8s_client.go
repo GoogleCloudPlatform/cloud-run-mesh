@@ -137,7 +137,7 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 
 	// It is possible to have only one of the 2 mesh connector services installed
 	if kr.XDSAddr == "" || kr.ProjectNumber == "" ||
-			(kr.MeshConnectorAddr == "" && kr.MeshConnectorInternalAddr == "") {
+		(kr.MeshConnectorAddr == "" && kr.MeshConnectorInternalAddr == "") {
 		err := kr.loadMeshEnv(ctx)
 		if err != nil {
 			return err
