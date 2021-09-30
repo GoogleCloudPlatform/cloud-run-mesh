@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/costinm/cloud-run-mesh/pkg/echo"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/echo"
 )
 
 // WIP

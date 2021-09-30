@@ -1,4 +1,4 @@
-module github.com/costinm/cloud-run-mesh
+module github.com/GoogleCloudPlatform/cloud-run-mesh
 
 go 1.16
 

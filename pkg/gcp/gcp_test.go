@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"

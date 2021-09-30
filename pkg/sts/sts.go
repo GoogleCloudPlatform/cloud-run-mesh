@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	"golang.org/x/oauth2"
 )
 

@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/costinm/cloud-run-mesh/pkg/hbone"
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
-	"github.com/costinm/cloud-run-mesh/pkg/sts"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 	"golang.org/x/net/http2"
 
 	corev1 "k8s.io/api/core/v1"

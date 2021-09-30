@@ -26,13 +26,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/costinm/cloud-run-mesh/pkg/gcp"
-	"github.com/costinm/cloud-run-mesh/pkg/gcp/meshca"
-	"github.com/costinm/cloud-run-mesh/pkg/hbone"
-	"github.com/costinm/cloud-run-mesh/pkg/istioca"
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
-	"github.com/costinm/cloud-run-mesh/pkg/meshconnectord"
-	"github.com/costinm/cloud-run-mesh/pkg/sts"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp/meshca"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/istioca"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/meshconnectord"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 )
 
 var (

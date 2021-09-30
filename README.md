@@ -87,7 +87,7 @@ After installation, new services can be configured for namespaces using only nam
 
 ```shell 
 
-kubectl apply -k github.com/costinm/cloud-run-mesh/manifests/
+kubectl apply -k github.com/GoogleCloudPlatform/cloud-run-mesh/manifests/
 
 ```
 
@@ -140,7 +140,7 @@ gcloud container clusters get-credentials ${CLUSTER_NAME} --zone ${CLUSTER_LOCAT
 kubectl create ns ${WORKLOAD_NAMESPACE} 
 
 # Uses WORKLOAD_NAMESPACE and PROJECT_ID to associate the Google Service Account with the K8S Namespace.
-curl https://raw.githubusercontent.com/costinm/cloud-run-mesh/main/manifests/google-service-account-template.yaml | envsubst | kubectl apply -f -
+curl https://raw.githubusercontent.com/GoogleCloudPlatform/cloud-run-mesh/main/manifests/google-service-account-template.yaml | envsubst | kubectl apply -f -
 
 ```
 
@@ -219,7 +219,7 @@ This step will be replaced by auto-registration (WIP):
 export SNI_GATE_IP=$(kubectl -n istio-system get service internal-hgate -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 export K_SERVICE=$(gcloud run services describe ${CLOUDRUN_SERVICE} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)" | sed s,https://,, | sed s/.a.run.app// )
 
-curl https://raw.githubusercontent.com/costinm/cloud-run-mesh/main/manifests/sni-service-template.yaml | SNI_GATE_IP=${SNI_GATE_IP} K_SERVICE=${K_SERVICE} envsubst  | kubectl apply -f -
+curl https://raw.githubusercontent.com/GoogleCloudPlatform/cloud-run-mesh/main/manifests/sni-service-template.yaml | SNI_GATE_IP=${SNI_GATE_IP} K_SERVICE=${K_SERVICE} envsubst  | kubectl apply -f -
 
 # Or: cat ../../manifests/sni-service-template.yaml | SNI_GATE_IP=${SNI_GATE_IP} K_SERVICE=${K_SERVICE} envsubst  | kubectl apply -f -
 ```
@@ -236,7 +236,7 @@ gcloud container clusters get-credentials ${CLUSTER_NAME} --zone ${CLUSTER_LOCAT
 
 kubectl create ns fortio
 kubectl label namespace fortio  istio.io/rev=asm-managed 
-kubectl -n fortio apply -f https://raw.githubusercontent.com/costinm/cloud-run-mesh/main/samples/fortio/in-cluster.yaml
+kubectl -n fortio apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/cloud-run-mesh/main/samples/fortio/in-cluster.yaml
 
 ```
 

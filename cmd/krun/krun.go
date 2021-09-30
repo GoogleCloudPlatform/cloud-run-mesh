@@ -21,9 +21,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/costinm/cloud-run-mesh/pkg/gcp"
-	"github.com/costinm/cloud-run-mesh/pkg/hbone"
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 )
 
 var initDebug func(run *mesh.KRun)

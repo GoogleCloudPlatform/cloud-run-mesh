@@ -30,7 +30,7 @@ import (
 
 	container "cloud.google.com/go/container/apiv1"
 
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 
 	"k8s.io/client-go/kubernetes"
 	kubeconfig "k8s.io/client-go/tools/clientcmd/api"

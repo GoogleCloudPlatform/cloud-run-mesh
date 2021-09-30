@@ -18,7 +18,7 @@ syntax = "proto3";
 // Keep this package for backward compatibility.
 package istio.v1.auth;
 
-option go_package="github.com/costinm/cloud-run-mesh/pkg/istioca";
+option go_package="github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/istioca";
 
 // Certificate request message. The authentication should be based on:
 // 1. Bearer tokens carried in the side channel;

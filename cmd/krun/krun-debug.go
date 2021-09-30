@@ -19,7 +19,7 @@ import (
 	"log"
 
 	"github.com/costinm/cert-ssh/ssh"
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 )
 
 // Optional debug dependency, using cert-based SSH or loaded from a secret.

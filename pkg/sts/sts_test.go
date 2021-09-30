@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/costinm/cloud-run-mesh/pkg/gcp"
-	"github.com/costinm/cloud-run-mesh/pkg/mesh"
+	_ "github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 )
 
 // TestSTS uses a k8s connection and env to locate the mesh, and tests the token generation.
