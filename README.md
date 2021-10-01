@@ -1,6 +1,10 @@
 # Running a CloudRun or docker image in a mesh environment
 
+Cloud Run ASM is an experimental feature which isn't officially supported yet and we do not recommend using this 
+feature in production at this stage
+
 This repository implements a small launcher that prepares a mesh environment and starts the user application.
+
 
 In K8S, the mesh implementation relies on a mutating webhook that patches the Pod, injecting for required environment.
 Docker and CloudRun images do not have an injector - this application is playing the same role, using the K8S and GCP
