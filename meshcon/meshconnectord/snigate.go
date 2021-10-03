@@ -136,7 +136,7 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	}
 
 	// create the tokens expected for Istio (token)
-	kr.RefreshAndSaveFiles()
+	kr.RefreshAndSaveTokens()
 
 	sg.NewWatcher()
 

@@ -190,7 +190,7 @@ func (kr *KRun) StartIstioAgent() error {
 	// If using a private CA - add it's root to the docker images, everything will be consistent
 	// and simpler !
 	if os.Getenv("PROXY_CONFIG") == "" {
-		if kr.MeshTenant == "-" {
+		if kr.MeshTenant == "-" || kr.MeshTenant == "" {
 			// Explicitly in-cluster
 			kr.XDSAddr = kr.MeshConnectorAddr + ":15012"
 		}
@@ -201,12 +201,17 @@ func (kr *KRun) StartIstioAgent() error {
 
 	if strings.HasSuffix(kr.XDSAddr, ":15012") {
 		env = addIfMissing(env, "ISTIOD_SAN", "istiod.istio-system.svc")
+		kr.Aud2File["istio-ca"] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"
 	} else {
+		kr.Aud2File[kr.TrustDomain] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"
 		env = addIfMissing(env, "XDS_ROOT_CA", "SYSTEM")
 		env = addIfMissing(env, "PILOT_CERT_PROVIDER", "system")
 		env = addIfMissing(env, "CA_ROOT_CA", "SYSTEM")
 	}
 	env = addIfMissing(env, "POD_NAMESPACE", kr.Namespace)
+
+	kr.RefreshAndSaveTokens()
+
 
 	// Pod name MUST be an unique name - it is used in stackdriver which requires this ( errors on 'ordered updates' and
 	//  lost data otherwise)
@@ -308,6 +313,14 @@ func (kr *KRun) StartIstioAgent() error {
 	// i.e. only get certificate.
 	if _, err := os.Stat("/usr/local/bin/envoy"); os.IsNotExist(err) {
 		env = append(env, "DISABLE_ENVOY=true")
+	}
+	// TODO: look in /var...
+	if _, err := os.Stat(" ./var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
+		if _, err := os.Stat("/var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
+			env = append(env, "DISABLE_ENVOY=true")
+		} else {
+			env = append(env, "ISTIO_BOOTSTRAP", "/var/lib/istio/envoy/envoy_bootstrap_tmpl.json")
+		}
 	}
 
 	// Generate grpc bootstrap - no harm, low cost

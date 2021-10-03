@@ -102,7 +102,7 @@ test/e2e:
 
 # HGate - push to the repo and deploy
 push/hgate:
-	ko publish -B -t ${TAG} ./cmd/gate
+	(cd meshcon; ko publish -B -t ${TAG} ./)
 
 push/fortio: build/fortio
 	(cd samples/fortio; make push)

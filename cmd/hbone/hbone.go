@@ -83,7 +83,7 @@ func main() {
 		log.Fatal("Failed to connect to K8S ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}
 
-	// Not calling RefreshAndSaveFiles - hbone is not creating files, jwts and certs in memory only.
+	// Not calling RefreshAndSaveTokens - hbone is not creating files, jwts and certs in memory only.
 	// Also not initializing pilot-agent or envoy - this is just using k8s to configure the hbone tunnel
 
 	auth := hbone.NewAuth()

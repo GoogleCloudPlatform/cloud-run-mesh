@@ -41,8 +41,6 @@ func main() {
 	log.Println("K8S Client initialized", kr.ProjectId, kr.ClusterLocation, kr.ClusterName, kr.ProjectNumber,
 		kr.KSA, kr.Namespace, kr.Name, kr.Labels, kr.XDSAddr)
 
-	kr.RefreshAndSaveFiles()
-
 	meshMode := true
 
 	if _, err := os.Stat("/usr/local/bin/pilot-agent"); os.IsNotExist(err) {

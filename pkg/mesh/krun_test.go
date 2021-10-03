@@ -39,7 +39,7 @@ func TestK8S(t *testing.T) {
 	}
 
 	// For Istio agent
-	kr.RefreshAndSaveFiles()
+	kr.RefreshAndSaveTokens()
 
 	kr.StartIstioAgent()
 
