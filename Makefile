@@ -150,6 +150,10 @@ logs:
 ssh:
 	(cd samples/fortio; make ssh)
 
+pod2cr: POD=$(shell kubectl --namespace=fortio get -l app=fortio pod -o=jsonpath='{.items[0].metadata.name}')
+pod2cr:
+	kubectl exec -n fortio ${POD} -- fortio load ${FORTIO_LOAD_ARG} fortio-cr:8080/echo
+
 ################# Testing / local dev #################
 # For testing/dev in local docker
 
@@ -212,31 +216,43 @@ deps:
 	# TODO: helm, ko
 
 # Used for the target installing in-cluster istio, not required when testing with MCP
-ISTIO_CHARTS?=../istio/manifests/charts
-REV?=v1-11
+#ISTIO_CHARTS?=../istio/manifests/charts/istio-control/istio-discovery
 
-# A single version of Istiod - using a version-based revision name.
-# The version will be associated with labels using in the other charts.
+ISTIO_CHARTS?=istio/istiod
+#REV?=v1-11
+CHART_VERSION=--version 1.12.0-alpha.0
+
+helm/addcharts:
+	helm repo add istio https://istio-release.storage.googleapis.com/charts
+	helm repo update
+
+
+# Default install of istiod, with a number of options set for interop with ASM and MCP.
+#
+# TODO: add docs on how to upgrade an existing istio, explain the config.
+#
+# To install a revisioned istio, replace "istiod" with "istiod-REV and add --set revision=${REV}
 deploy/istiod:
-	# Install istiod.
-	# Telemetry configs can be installed as a separate chart - this
-	# avoids upgrade issues for 1.4 skip-version.
-	# TODO: add telementry to docker image
+	kubectl create namespace istio-system | true
+	helm install istio-base istio/base -n istio-system ${CHART_VERSION} | true
 	helm upgrade --install \
  		-n istio-system \
- 		istiod-${REV} \
-        ${ISTIO_CHARTS}/istio-control/istio-discovery \
-		--set revision=${REV} \
+ 		istiod \
+        ${ISTIO_CHARTS} \
+        ${CHART_VERSION} \
 		--set telemetry.enabled=true \
-		--set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
 		--set global.sds.token.aud="${PROJECT_ID}.svc.id.goog" \
-		--set pilot.env.TOKEN_AUDIENCES="${PROJECT_ID}.svc.id.goog\,istio-ca" \
-		--set pilot.env.ISTIO_MULTIROOT_MESH=true \
+        --set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
+        \
 		--set meshConfig.proxyHttpPort=15007 \
         --set meshConfig.accessLogFile=/dev/stdout \
+        \
         --set pilot.replicaCount=1 \
         --set pilot.autoscaleEnabled=false \
-		--set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
+        \
+		--set pilot.env.TOKEN_AUDIENCES="${PROJECT_ID}.svc.id.goog\,istio-ca" \
+        --set pilot.env.ISTIO_MULTIROOT_MESH=true \
+        --set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
 		--set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS=true
 
 ############ Canary (stability/e2e) ##############

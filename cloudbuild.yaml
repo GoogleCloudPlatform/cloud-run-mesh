@@ -67,6 +67,7 @@ steps:
   #  gcloud get-credentials generate a KUBECONFIG file using exec gcloud - so it must be present.
   - name: gcr.io/wlhe-cr/gcloud-alpha
     entrypoint: /bin/sh
+    id: test
     env:
       - PROJECT_ID=$PROJECT_ID
       - CLUSTER_NAME=asm-cr
@@ -79,6 +80,9 @@ steps:
       - -c
       - |
         gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
+        go build ./cmd/hone/
+        go build ./cmd/gate/
+        go build ./cmd/krun/
         make test
 
   # Deploy the in-cluster connector. Note that the runner doesn't have RBAC permissions

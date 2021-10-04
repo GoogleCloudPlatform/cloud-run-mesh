@@ -1,1 +1,4 @@
 .idea/
+# Created by running the krun command in IDE
+etc/
+var/
