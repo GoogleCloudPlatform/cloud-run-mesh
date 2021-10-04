@@ -199,9 +199,23 @@ func (kr *KRun) StartIstioAgent() error {
 		env = append(env, "PROXY_CONFIG="+proxyConfig)
 	}
 
+	// Pilot-agent requires this file, to connect to CA and XDS.
+	// The plan is to add code to get the certs to this package, so proxyless doesn't depend on pilot-agent.
+	//
+	// OSS Istio uses 'istio-ca' as token audience when connecting to Citadel
+	// ASM uses the 'trust domain' - which is also needed for MCP and Stackdriver.
+	// Recent Istiod supports customization of the expected audiences, via an env variable.
+	//
 	if strings.HasSuffix(kr.XDSAddr, ":15012") {
 		env = addIfMissing(env, "ISTIOD_SAN", "istiod.istio-system.svc")
-		kr.Aud2File["istio-ca"] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"
+		// Temp workaround to handle OSS-specific behavior. By default we will expect OSS Istio
+		// to be installed in 'compatibility' mode with ASM, i.e. accept both istio-ca and trust domain
+		// as audience.
+		if os.Getenv("OSS_ISTIO") != "" {
+			kr.Aud2File["istio-ca"] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"
+		} else {
+			kr.Aud2File[kr.TrustDomain] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"
+		}
 	} else {
 		kr.Aud2File[kr.TrustDomain] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"
 		env = addIfMissing(env, "XDS_ROOT_CA", "SYSTEM")
