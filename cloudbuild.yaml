@@ -80,10 +80,7 @@ steps:
       - -c
       - |
         gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
-        go build ./cmd/hone/
-        go build ./cmd/gate/
-        go build ./cmd/krun/
-        make test
+        make build test
 
   # Deploy the in-cluster connector. Note that the runner doesn't have RBAC permissions
   # The cluster must be setup with the RBAC manually.

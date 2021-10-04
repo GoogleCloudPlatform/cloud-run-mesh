@@ -31,7 +31,7 @@ import (
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/third_party/istio/istioca"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
-	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/meshconnectord"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/meshcon/meshconnectord"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 )
 

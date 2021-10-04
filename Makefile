@@ -59,11 +59,12 @@ deploy/hgate:
 test:
 	go test -timeout 2m -v ./...
 
-#push/krun:
-#	ko publish -B -t ${TAG} ./
-#push/hgate:
-#	docker push gcr.io/${PROJECT_ID}/hbgate:${TAG}
 
+build:
+	go build -o ${OUT}/hbone ./cmd/hbone/
+	(cd meshcon && go build -o  ${OUT}/meshcon ./)
+	go build -o ${OUT}/krun ./cmd/krun/
+	ls -l ${OUT}
 
 # Build and tag krun image locally, will be used in the next phase and for local testing, no push
 
@@ -76,14 +77,13 @@ build/krun:
 
 build/hgate:
 	# Will also tag ko.local/krun:latest
-	KO_IMAGE=$(shell ko publish -L -B ./cmd/gate) TAG_IMAGE=${HGATE_IMAGE} $(MAKE) _ko_tag_local
+	KO_IMAGE=$(shell cd meshcon && ko publish -L -B ./) TAG_IMAGE=${HGATE_IMAGE} $(MAKE) _ko_tag_local
 
 # Same thing, using docker build - slower
 build/docker-krun:
 	docker build . -t ${KRUN_IMAGE}
 
 _ko_tag_local:
-	#docker tag ${KO_IMAGE} ko.local/krun:latest && \
 	docker tag ${KO_IMAGE} ${TAG_IMAGE}
 
 # Same thing with docker
@@ -220,7 +220,7 @@ deps:
 
 ISTIO_CHARTS?=istio/istiod
 #REV?=v1-11
-CHART_VERSION=--version 1.12.0-alpha.0
+CHART_VERSION=--devel 
 
 helm/addcharts:
 	helm repo add istio https://istio-release.storage.googleapis.com/charts

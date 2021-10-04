@@ -3,9 +3,11 @@ module github.com/GoogleCloudPlatform/cloud-run-mesh
 go 1.16
 
 //replace github.com/costinm/cert-ssh/ssh => ../cert-ssh/ssh
+replace github.com/GoogleCloudPlatform/cloud-run-mesh/meshcon/meshconnectord => ./meshcon/meshconnectord
 
 require (
 	cloud.google.com/go v0.84.0
+	github.com/GoogleCloudPlatform/cloud-run-mesh/meshcon v0.0.0-20211003204714-cc2938d771cf // indirect
 	github.com/costinm/cert-ssh/ssh v0.0.0-20210914000841-64495e35bb80
 	github.com/creack/pty v1.1.13
 	github.com/golang/protobuf v1.5.2
