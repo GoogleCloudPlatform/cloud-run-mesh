@@ -183,6 +183,8 @@ func (kr *KRun) initFromEnv() {
 	}
 	if kr.BaseDir != "" {
 		prefix = kr.BaseDir
+	} else {
+		kr.BaseDir = prefix
 	}
 
 	if kr.TrustDomain == "" {
@@ -191,10 +193,11 @@ func (kr *KRun) initFromEnv() {
 	if kr.TrustDomain == "" {
 		kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
 	}
-	kr.Aud2File[kr.TrustDomain] = prefix + "/var/run/secrets/tokens/istio-token"
-	if !kr.InCluster {
-		kr.Aud2File["api"] = prefix + "/var/run/secrets/kubernetes.io/serviceaccount/token"
-	}
+	// This can be used to provide a k8s-like environment, for apps that need it.
+	// It might be better to just generate a kubeconfig file and not pretend we are inside a cluster.
+	//if !kr.InCluster {
+	//	kr.Aud2File["api"] = prefix + "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	//}
 	if kr.KSA == "" {
 		kr.KSA = "default"
 	}
@@ -221,18 +224,18 @@ func (kr *KRun) initFromEnv() {
 	kr.AgentDebug = cfg("XDS_AGENT_DEBUG", "")
 }
 
-// RefreshAndSaveFiles is run periodically to create token, secrets, config map files.
+// RefreshAndSaveTokens is run periodically to create token, secrets, config map files.
 // The primary use is istio token expected by pilot agent.
 // This should not be called unless pilot-agent/envoy  or proxyless gRPC without library are used.
 // pilot-agent is currently refreshing the certificates - WIP to move that here.
 //
 // Certs for 'direct' (library) use can be created without saving the tokens.
 // 'library' means linking this or a similar package with the application.
-func (kr *KRun) RefreshAndSaveFiles() {
+func (kr *KRun) RefreshAndSaveTokens() {
 	for aud, f := range kr.Aud2File {
 		kr.saveTokenToFile(kr.Namespace, aud, f)
 	}
-	time.AfterFunc(30*time.Minute, kr.RefreshAndSaveFiles)
+	time.AfterFunc(30*time.Minute, kr.RefreshAndSaveTokens)
 }
 
 // SaveFile is a helper to save a file used by agent or app.

@@ -20,10 +20,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/meshcon/meshconnectord"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	_ "github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
-	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/meshconnectord"
 )
 
 // Based on krun, start pilot-agent to get the certs and create the XDS proxy, and implement
