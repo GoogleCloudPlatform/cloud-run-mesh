@@ -55,7 +55,7 @@ steps:
     id: hgate
     args:
       - --destination=gcr.io/$PROJECT_ID/hgate:$BRANCH_NAME
-      - --dockerfile=cmd/gate/Dockerfile
+      - --dockerfile=meshcon/Dockerfile
       - --build-arg=BASE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
       - --cache=true
       - --cache-ttl=240h

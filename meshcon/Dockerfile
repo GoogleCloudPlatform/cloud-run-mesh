@@ -18,7 +18,7 @@ RUN go mod download
 COPY cmd ./cmd/
 COPY pkg ./pkg/
 
-RUN go build -a -gcflags='all=-N -l' -ldflags '-extldflags "-static"' -o /ws/hgate ./cmd/gate
+RUN cd meshcon && go build -a -gcflags='all=-N -l' -ldflags '-extldflags "-static"' -o /ws/hgate ./
 
 FROM ${BASE} AS istio
 

@@ -88,7 +88,7 @@ _ko_tag_local:
 
 # Same thing with docker
 build/docker-hgate:
-	time docker build . -f cmd/gate/Dockerfile -t ${HGATE_IMAGE}
+	time docker build . -f meshcon/Dockerfile -t ${HGATE_IMAGE}
 
 
 test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
@@ -220,7 +220,7 @@ deps:
 
 ISTIO_CHARTS?=istio/istiod
 #REV?=v1-11
-CHART_VERSION=--devel 
+CHART_VERSION=--devel
 
 helm/addcharts:
 	helm repo add istio https://istio-release.storage.googleapis.com/charts
