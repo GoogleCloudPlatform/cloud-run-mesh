@@ -17,6 +17,7 @@ RUN go mod download
 
 COPY cmd ./cmd/
 COPY pkg ./pkg/
+COPY meshcon ./meshcon/
 
 RUN cd meshcon && go build -a -gcflags='all=-N -l' -ldflags '-extldflags "-static"' -o /ws/hgate ./
 
