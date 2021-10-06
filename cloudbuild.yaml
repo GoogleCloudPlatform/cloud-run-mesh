@@ -17,6 +17,12 @@ options:
   substitution_option: ALLOW_LOOSE
   machineType: 'N1_HIGHCPU_8'
 
+  env:
+    - PROJECT_ID=$PROJECT_ID
+    - KRUN_IMAGE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME$_PR_NUMBER
+    - HGATE_IMAGE=gcr.io/$PROJECT_ID/krun/gate:$BRANCH_NAME$_PR_NUMBER
+    - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME$_PR_NUMBER
+
 # Execution environment:
 # HOME=/builder/home
 # pwd=/workspace
@@ -29,10 +35,6 @@ steps:
   - name: gcr.io/wlhe-cr/gcloud-alpha
     entrypoint: /bin/sh
     id: push
-    env:
-      - PROJECT_ID=$PROJECT_ID
-      - KRUN_IMAGE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
-      - HGATE_IMAGE=gcr.io/$PROJECT_ID/krun/gate:$BRANCH_NAME
     waitFor:
       - "-"
     args:
@@ -44,8 +46,10 @@ steps:
   # ~2 min
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: base-kaniko
+    waitFor:
+      - "-"
     args:
-      - --destination=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
+      - --destination=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME$_PR_NUMBER
       - --cache=true
       - --cache-ttl=240h
       - --force
@@ -55,10 +59,10 @@ steps:
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: fortio
     args:
-      - --destination=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
+      - --destination=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME$_PR_NUMBER
       - --dockerfile=samples/fortio/Dockerfile
       - --context=dir://samples/fortio
-      - --build-arg=BASE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
+      - --build-arg=BASE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME$_PR_NUMBER
       - --cache=true
       - --cache-ttl=240h
     timeout: 1200s
@@ -71,10 +75,8 @@ steps:
     entrypoint: /bin/sh
     id: test
     env:
-      - PROJECT_ID=$PROJECT_ID
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
-      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
       - "push"
@@ -90,16 +92,15 @@ steps:
     id: hgatedeploy
     entrypoint: /bin/sh
     env:
-      - PROJECT_ID=$PROJECT_ID
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
-      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
       - push
     args:
       - -c
       - |
+        gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
         make deploy/hgate
 
   # Deploy the canary, run tests
@@ -108,10 +109,8 @@ steps:
   - name: gcr.io/wlhe-cr/gcloud-alpha
     entrypoint: /bin/sh
     env:
-      - PROJECT_ID=$PROJECT_ID
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
-      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
       - fortio

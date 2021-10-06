@@ -11,13 +11,19 @@ ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOPROXY=https://proxy.golang.org
 
+RUN apt update && apt install time
+
 COPY go.* ./
 
-# Helps speed up local builds
-#RUN go mod download
+RUN go mod download
 
 COPY cmd ./cmd/
 COPY pkg ./pkg/
+COPY meshcon ./meshcon/
+COPY third_party ./third_party/
+
+
+COPY Makefile ./
 
 ENV OUT=/ws
 RUN make build
