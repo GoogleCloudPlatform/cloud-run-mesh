@@ -19,6 +19,6 @@ FROM ${BASE}
 COPY --from=app /usr/bin/fortio /usr/bin/fortio
 
 # Make sure the entrypoint is set to krun. Krun is built with 'ko', which uses a specific dir.
-ENTRYPOINT ["/ko-app/krun"]
+ENTRYPOINT ["/usr/local/bin/krun"]
 # Normal application command
 CMD ["/usr/bin/fortio", "server", "-http-port=8080"]

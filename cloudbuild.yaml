@@ -26,6 +26,20 @@ options:
 
 steps:
 
+  - name: gcr.io/wlhe-cr/gcloud-alpha
+    entrypoint: /bin/sh
+    id: push
+    env:
+      - PROJECT_ID=$PROJECT_ID
+      - KRUN_IMAGE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
+      - HGATE_IMAGE=gcr.io/$PROJECT_ID/krun/gate:$BRANCH_NAME
+    waitFor:
+      - "-"
+    args:
+      - -c
+      - |
+        make build docker/krun push/krun docker/hgate push/hgate
+
   # Build golden base, hgate, test app using Kaniko.
   # ~2 min
   - name: 'gcr.io/kaniko-project/executor:latest'
@@ -51,22 +65,6 @@ steps:
     waitFor:
       - base-kaniko
 
-  - name: gcr.io/wlhe-cr/gcloud-alpha
-    entrypoint: /bin/sh
-    id: push
-    env:
-      - PROJECT_ID=$PROJECT_ID
-      - CLUSTER_NAME=asm-cr
-      - CLUSTER_LOCATION=us-central1-c
-      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
-      - KUBECONFIG=/workspace/kubeconfig
-    waitFor:
-      - "-"
-    args:
-      - -c
-      - |
-        make build docker/hgate push/hgate
-
   # Run tests. We need a docker image with cloudrun (for get credentials).
   #  gcloud get-credentials generate a KUBECONFIG file using exec gcloud - so it must be present.
   - name: gcr.io/wlhe-cr/gcloud-alpha
@@ -79,12 +77,12 @@ steps:
       - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
-      - "-"
+      - "push"
     args:
       - -c
       - |
         gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
-        make build test
+        make test
 
   # Deploy the in-cluster connector. Note that the runner doesn't have RBAC permissions
   # The cluster must be setup with the RBAC manually.

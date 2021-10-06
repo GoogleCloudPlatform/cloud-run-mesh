@@ -27,13 +27,12 @@ TAG ?= latest
 
 # Derived values
 
-# This project uses 'ko' to build faster.
-KO_DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
-export KO_DOCKER_REPO
+DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
+export DOCKER_REPO
 
-KRUN_IMAGE?=${KO_DOCKER_REPO}:latest
+KRUN_IMAGE?=${DOCKER_REPO}:latest
 
-HGATE_IMAGE?=${KO_DOCKER_REPO}/gate:latest
+HGATE_IMAGE?=${DOCKER_REPO}/gate:latest
 
 WORKLOAD_NAME?=fortio-cr
 WORKLOAD_NAMESPACE?=fortio
@@ -63,8 +62,9 @@ test:
 	go test -timeout 2m -v ./...
 
 # Build all binaries in one step - faster.
+# Static build so it works with 'scratch' and not dependent on distro
 build:
-	time go build -o ${OUT}/ ./cmd/hbone/ ./cmd/krun ./cmd/hgate
+	CGO_ENABLED=0  time  go build -ldflags '-s -w -extldflags "-static"' -o ${OUT}/ ./cmd/hbone/ ./cmd/krun ./cmd/hgate
 	ls -l ${OUT}
 
 # Build and tag krun image locally, will be used in the next phase and for local testing, no push
@@ -72,22 +72,20 @@ build:
 build/fortio: build/krun
 	(cd samples/fortio; GOLDEN_IMAGE=${KRUN_IMAGE} make image)
 
-build/krun:
-	# Will also tag ko.local/krun:latest
-	KO_IMAGE=$(shell ko publish -L -B ./cmd/krun) TAG_IMAGE=${KRUN_IMAGE} $(MAKE) _ko_tag_local
+build/krun: docker/krun
+
 
 build/hgate: docker/hgate
 
 docker/hgate:
 	time docker build ${OUT}/ -f tools/docker/Dockerfile.meshcon -t ${HGATE_IMAGE}
 
+docker/krun:
+	time docker build ${OUT}/ -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
 
 # Same thing, using docker build - slower
 build/docker-krun:
 	docker build . -t ${KRUN_IMAGE}
-
-_ko_tag_local:
-	docker tag ${KO_IMAGE} ${TAG_IMAGE}
 
 # Same thing with docker
 build/docker-hgate:
@@ -216,7 +214,7 @@ pull:
 deps:
 	curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 	chmod +x kubectl
-	# TODO: helm, ko
+	# TODO: helm, gcrane
 
 # Used for the target installing in-cluster istio, not required when testing with MCP
 #ISTIO_CHARTS?=../istio/manifests/charts/istio-control/istio-discovery
@@ -315,13 +313,9 @@ gcb/builder:
 gcb/builder-gcloud:
 	gcloud builds --project ${PROJECT_ID} submit . --config=tools/gcloud-alpha/cloudbuild.yaml
 
-gcb/builder-ko:
-	gcloud builds --project ${PROJECT_ID} submit . --config=tools/ko/cloudbuild.yaml
-
-# Local testing using CI/CD. This uses the 'ko' variant - since kaniko doesn't work locally (and is fastest on GCB)
 gcb/local:
 	mkdir -p ${OUT}/gcb-local
-	cloud-build-local --dryrun=false --push=true --write-workspace=${OUT}/gcb-local  --substitutions=BRANCH_NAME=local,COMMIT_SHA=local --config=tools/local/cloudbuild.yaml .
+	cloud-build-local --dryrun=false --push=true --write-workspace=${OUT}/gcb-local  --substitutions=BRANCH_NAME=local,COMMIT_SHA=local --config=cloudbuild.yaml .
 
 gcb/build-hgate:
 	gcloud builds --project ${PROJECT_ID} submit  --config=cmd/gate/cloudbuild.yaml .

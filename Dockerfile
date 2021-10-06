@@ -19,14 +19,13 @@ COPY go.* ./
 COPY cmd ./cmd/
 COPY pkg ./pkg/
 
-RUN go build -a -gcflags='all=-N -l' -ldflags '-extldflags "-static"' -o /ws/krun ./cmd/krun
-
+ENV OUT=/ws
+RUN make build
 
 FROM ${BASE} AS istio
 
-# Similar with the 'ko' runtime layout
-COPY --from=build /ws/krun /ko-app/krun
+COPY --from=build /ws/krun /usr/local/bin/krun
 
 WORKDIR /
 
-ENTRYPOINT ["/ko-app/krun"]
+ENTRYPOINT ["/usr/local/bin/krun"]
