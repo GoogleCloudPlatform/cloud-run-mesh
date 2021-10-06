@@ -44,6 +44,7 @@ ISTIO_PROXY_IMAGE?=gcr.io/istio-testing/proxyv2:latest
 
 FORTIO_IMAGE?=gcr.io/${PROJECT_ID}/fortio-mesh:latest
 export FORTIO_IMAGE
+export HGATE_IMAGE
 
 # Build krun, fortio, push fortio, deploy to main test cloudrun config
 # Expects Istio cluster and in-cluster fortio to be running
@@ -53,7 +54,11 @@ all: build/krun push/fortio deploy/fortio
 all-hgate: build docker/hgate push/hgate deploy/hgate
 
 deploy/hgate:
-	kubectl apply -f manifests/hgate/
+	mkdir -p ${OUT}/manifests
+	cat manifests/kustomization-tmpl.yaml | envsubst > ${OUT}/manifests/kustomization.yaml
+	cp -a manifests/hgate ${OUT}/manifests
+	kubectl apply -k ${OUT}/manifests
+	#kubectl apply -f manifests/hgate/
 	kubectl rollout restart deployment hgate -n istio-system
 	kubectl wait deployments hgate -n istio-system --for=condition=available
 

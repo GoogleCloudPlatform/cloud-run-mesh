@@ -15,6 +15,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# Same as kustomization, but using a custom image
 resources:
   - hgate/cluster-rbac.yaml
   - hgate/rbac.yaml
@@ -24,3 +25,6 @@ resources:
   - hgate/istio.yaml
   - hgate/telemetry-stackdriver-patch.yaml
 
+images:
+  - name: gcr.io/wlhe-cr/krun/gate:latest
+    newName: ${HGATE_IMAGE}
