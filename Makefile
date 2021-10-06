@@ -104,7 +104,7 @@ test/e2e:
 push/hgate:
 	docker push ${HGATE_IMAGE}
 
-push/hgate:
+push/krun:
 	docker push ${KRUN_IMAGE}
 
 push/fortio: build/fortio
