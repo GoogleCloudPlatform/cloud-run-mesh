@@ -102,6 +102,7 @@ steps:
     args:
       - -c
       - |
+        gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
         make deploy/hgate
 
   # Deploy the canary, run tests
