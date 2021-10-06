@@ -170,9 +170,10 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		}
 		t, err := hc.hb.TokenCallback(ctx, "https://"+h)
 		if err != nil {
-			return err
+			log.Println("Failed to get token, attempt unauthenticated", err)
+		} else {
+			r.Header.Set("Authorization", "Bearer "+t)
 		}
-		r.Header.Set("Authorization", "Bearer "+t)
 	}
 
 	if hc.rt == nil {
