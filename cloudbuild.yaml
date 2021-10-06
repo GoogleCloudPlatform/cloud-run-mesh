@@ -51,18 +51,6 @@ steps:
     waitFor:
       - base-kaniko
 
-  - name: 'gcr.io/kaniko-project/executor:latest'
-    id: hgate
-    args:
-      - --destination=gcr.io/$PROJECT_ID/hgate:$BRANCH_NAME
-      - --dockerfile=meshcon/Dockerfile
-      - --build-arg=BASE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME
-      - --cache=true
-      - --cache-ttl=240h
-    timeout: 1200s
-    waitFor:
-      - base-kaniko
-
   - name: gcr.io/wlhe-cr/gcloud-alpha
     entrypoint: /bin/sh
     id: push
@@ -110,7 +98,7 @@ steps:
       - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
-      - hgate
+      - push
     args:
       - -c
       - |
