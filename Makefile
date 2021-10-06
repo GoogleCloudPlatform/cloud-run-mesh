@@ -101,9 +101,11 @@ test/e2e:
 
 #### Pushing images
 
-# HGate - push to the repo and deploy
 push/hgate:
 	docker push ${HGATE_IMAGE}
+
+push/hgate:
+	docker push ${KRUN_IMAGE}
 
 push/fortio: build/fortio
 	(cd samples/fortio; make push)
