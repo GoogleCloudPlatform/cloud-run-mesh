@@ -63,6 +63,22 @@ steps:
     waitFor:
       - base-kaniko
 
+  - name: gcr.io/wlhe-cr/gcloud-alpha
+    entrypoint: /bin/sh
+    id: push
+    env:
+      - PROJECT_ID=$PROJECT_ID
+      - CLUSTER_NAME=asm-cr
+      - CLUSTER_LOCATION=us-central1-c
+      - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME
+      - KUBECONFIG=/workspace/kubeconfig
+    waitFor:
+      - "-"
+    args:
+      - -c
+      - |
+        make build docker/hgate push/hgate
+
   # Run tests. We need a docker image with cloudrun (for get credentials).
   #  gcloud get-credentials generate a KUBECONFIG file using exec gcloud - so it must be present.
   - name: gcr.io/wlhe-cr/gcloud-alpha

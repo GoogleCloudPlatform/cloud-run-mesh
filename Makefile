@@ -51,7 +51,7 @@ export FORTIO_IMAGE
 all: build/krun push/fortio deploy/fortio
 
 # Build, push, deploy hgate.
-all-hgate: build build/hgate push/hgate deploy/hgate
+all-hgate: build docker/hgate push/hgate deploy/hgate
 
 deploy/hgate:
 	kubectl apply -f manifests/hgate/
@@ -76,7 +76,9 @@ build/krun:
 	# Will also tag ko.local/krun:latest
 	KO_IMAGE=$(shell ko publish -L -B ./cmd/krun) TAG_IMAGE=${KRUN_IMAGE} $(MAKE) _ko_tag_local
 
-build/hgate:
+build/hgate: docker/hgate
+
+docker/hgate:
 	time docker build ${OUT}/ -f tools/docker/Dockerfile.meshcon -t ${HGATE_IMAGE}
 
 
