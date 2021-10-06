@@ -1,0 +1,11 @@
+# Dockerfile using an external build (similar with Istio)
+
+ARG BASE=gcr.io/istio-testing/proxyv2:latest
+
+FROM ${BASE}
+
+COPY krun /usr/local/bin/krun
+
+WORKDIR /
+
+ENTRYPOINT ["/usr/local/bin/krun"]

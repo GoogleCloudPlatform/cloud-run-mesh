@@ -40,6 +40,9 @@ WORKLOAD_NAMESPACE?=fortio
 
 CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
 
+# Also possible to use 1.11.2
+ISTIO_PROXY_IMAGE?=gcr.io/istio-testing/proxyv2:latest
+
 FORTIO_IMAGE?=gcr.io/${PROJECT_ID}/fortio-mesh:latest
 export FORTIO_IMAGE
 
@@ -48,7 +51,7 @@ export FORTIO_IMAGE
 all: build/krun push/fortio deploy/fortio
 
 # Build, push, deploy hgate.
-all-hgate: push/hgate deploy/hgate
+all-hgate: build build/hgate push/hgate deploy/hgate
 
 deploy/hgate:
 	kubectl apply -f manifests/hgate/
@@ -59,11 +62,9 @@ deploy/hgate:
 test:
 	go test -timeout 2m -v ./...
 
-
+# Build all binaries in one step - faster.
 build:
-	go build -o ${OUT}/hbone ./cmd/hbone/
-	(cd meshcon && go build -o  ${OUT}/meshcon ./)
-	go build -o ${OUT}/krun ./cmd/krun/
+	time go build -o ${OUT}/ ./cmd/hbone/ ./cmd/krun ./cmd/hgate
 	ls -l ${OUT}
 
 # Build and tag krun image locally, will be used in the next phase and for local testing, no push
@@ -76,8 +77,8 @@ build/krun:
 	KO_IMAGE=$(shell ko publish -L -B ./cmd/krun) TAG_IMAGE=${KRUN_IMAGE} $(MAKE) _ko_tag_local
 
 build/hgate:
-	# Will also tag ko.local/krun:latest
-	KO_IMAGE=$(shell cd meshcon && ko publish -L -B ./) TAG_IMAGE=${HGATE_IMAGE} $(MAKE) _ko_tag_local
+	time docker build ${OUT}/ -f tools/docker/Dockerfile.meshcon -t ${HGATE_IMAGE}
+
 
 # Same thing, using docker build - slower
 build/docker-krun:
@@ -102,7 +103,7 @@ test/e2e:
 
 # HGate - push to the repo and deploy
 push/hgate:
-	(cd meshcon; ko publish -B -t ${TAG} ./)
+	docker push ${HGATE_IMAGE}
 
 push/fortio: build/fortio
 	(cd samples/fortio; make push)
