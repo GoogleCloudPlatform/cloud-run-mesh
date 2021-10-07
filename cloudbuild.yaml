@@ -24,8 +24,9 @@ options:
 # BUILDER_OUTPUT=/builder/outputs
 # GOCACHE=/gocache
 
+# When creating trggers, replace the tag with either _PR_NUMBER, TAG_NAME or BRANCH_NAME
 substitutions:
-  _TAG: $BRANCH_NAME$_PR_NUMBER$TAG_NAME
+  _TAG: tmp
 
 steps:
   - name: gcr.io/wlhe-cr/crm-builder
