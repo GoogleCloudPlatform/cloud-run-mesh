@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Specialized builder - should include all deps for running the tests
-# Based on alpine - both for size and to validate it compiles with alpine/musl.
+# Specialized builder - should include all deps.
 
 FROM golang:alpine AS go
 
@@ -23,10 +22,28 @@ FROM gcr.io/google.com/cloudsdktool/cloud-sdk:353.0.0-alpine
 # Currently required for --execution-environment
 RUN gcloud components install -q alpha kubectl
 
-RUN apk update && apk add gcc bash musl-dev openssl-dev ca-certificates make gettext && update-ca-certificates
+RUN apk update && \
+    apk add gcc bash musl-dev openssl-dev ca-certificates make gettext && \
+    update-ca-certificates
 
 COPY --from=go /usr/local/go /usr/local/
 
 ENV PATH=$PATH:/usr/local/go/bin
+
+ENV GO111MODULE=on
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOPROXY=https://proxy.golang.org
+ENV OUT=/workspace/out
+#ENV BUILDER_OUTPUT=/builder/outputs
+ENV HOME=/builder/home
+ENV GOPATH=/go
+
+WORKDIR /workspace
+
+COPY go.* ./
+RUN mkdir -p /go && go mod download
+
+RUN go install github.com/google/go-containerregistry/cmd/gcrane@latest
 
 ENTRYPOINT ["/bin/sh"]

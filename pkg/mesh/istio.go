@@ -328,6 +328,9 @@ func (kr *KRun) StartIstioAgent() error {
 	if _, err := os.Stat("/usr/local/bin/envoy"); os.IsNotExist(err) {
 		env = append(env, "DISABLE_ENVOY=true")
 	}
+	if _, err := os.Stat("./var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
+		env = append(env, "DISABLE_ENVOY=true")
+	}
 	// TODO: look in /var...
 	if _, err := os.Stat(" ./var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
 		if _, err := os.Stat("/var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {

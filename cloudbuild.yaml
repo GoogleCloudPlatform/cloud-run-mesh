@@ -17,11 +17,6 @@ options:
   substitution_option: ALLOW_LOOSE
   machineType: 'N1_HIGHCPU_8'
 
-  env:
-    - PROJECT_ID=$PROJECT_ID
-    - KRUN_IMAGE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME$_PR_NUMBER
-    - HGATE_IMAGE=gcr.io/$PROJECT_ID/krun/gate:$BRANCH_NAME$_PR_NUMBER
-    - FORTIO_IMAGE=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME$_PR_NUMBER
 
 # Execution environment:
 # HOME=/builder/home
@@ -29,69 +24,71 @@ options:
 # BUILDER_OUTPUT=/builder/outputs
 # GOCACHE=/gocache
 
+# When creating trggers, replace the tag with either _PR_NUMBER, TAG_NAME or BRANCH_NAME
+substitutions:
+  _TAG: tmp
 
 steps:
-
-  - name: gcr.io/wlhe-cr/gcloud-alpha
+  - name: gcr.io/wlhe-cr/crm-builder
     entrypoint: /bin/sh
+    id: debug
+    waitFor:
+      - "-"
+    env:
+      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
+      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
+      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
+    args:
+      - -c
+      - |
+        env
+
+  - name: gcr.io/wlhe-cr/crm-builder
     id: push
     waitFor:
       - "-"
+    env:
+      - PROJECT_ID=${PROJECT_ID}
+      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
+      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
     args:
       - -c
       - |
         make build docker/krun push/krun docker/hgate push/hgate
 
-  # Build golden base, hgate, test app using Kaniko.
-  # ~2 min
-  - name: 'gcr.io/kaniko-project/executor:latest'
-    id: base-kaniko
-    waitFor:
-      - "-"
-    args:
-      - --destination=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME$_PR_NUMBER
-      - --cache=true
-      - --cache-ttl=240h
-      - --force
-    timeout: 1200s
-
-  # ~15sec
-  - name: 'gcr.io/kaniko-project/executor:latest'
+  - name: gcr.io/wlhe-cr/crm-builder
     id: fortio
-    args:
-      - --destination=gcr.io/$PROJECT_ID/fortio-mesh:$BRANCH_NAME$_PR_NUMBER
-      - --dockerfile=samples/fortio/Dockerfile
-      - --context=dir://samples/fortio
-      - --build-arg=BASE=gcr.io/$PROJECT_ID/krun:$BRANCH_NAME$_PR_NUMBER
-      - --cache=true
-      - --cache-ttl=240h
-    timeout: 1200s
     waitFor:
-      - base-kaniko
+      - "push"
+    env:
+      - GOLDEN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
+      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
+    args:
+      - -c
+      - |
+        cd samples/fortio
+        make image push
 
-  # Run tests. We need a docker image with cloudrun (for get credentials).
-  #  gcloud get-credentials generate a KUBECONFIG file using exec gcloud - so it must be present.
-  - name: gcr.io/wlhe-cr/gcloud-alpha
-    entrypoint: /bin/sh
+  - name: gcr.io/wlhe-cr/crm-builder
     id: test
     env:
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
     waitFor:
-      - "push"
+      - "-"
     args:
       - -c
       - |
-        gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
+        gcloud container clusters get-credentials $${CLUSTER_NAME} --zone us-central1-c --project $PROJECT_ID
         make test
 
   # Deploy the in-cluster connector. Note that the runner doesn't have RBAC permissions
   # The cluster must be setup with the RBAC manually.
-  - name: gcr.io/wlhe-cr/gcloud-alpha
+  - name: gcr.io/wlhe-cr/crm-builder
     id: hgatedeploy
-    entrypoint: /bin/sh
     env:
+      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
@@ -100,15 +97,16 @@ steps:
     args:
       - -c
       - |
-        gcloud container clusters get-credentials asm-cr --zone us-central1-c --project $PROJECT_ID
+        gcloud container clusters get-credentials $${CLUSTER_NAME} --zone us-central1-c --project $PROJECT_ID
         make deploy/hgate
 
   # Deploy the canary, run tests
   # Missing alpha command in 'gcr.io/google.com/cloudsdktool/cloud-sdk', also too large.
   # This is built with 'make gcp/builder-gcloud', alpine based.
-  - name: gcr.io/wlhe-cr/gcloud-alpha
+  - name: gcr.io/wlhe-cr/crm-builder
     entrypoint: /bin/sh
     env:
+      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
@@ -118,13 +116,13 @@ steps:
     args:
       - -c
       - |
-        make canary
+        make e2e
 
   # TODO: combine gcloud, go, etc in single image - Istio build image is huge
   # Also includes gcloud 349.0.0
   # https://github.com/GoogleCloudPlatform/cloud-builders-community/tree/master/ko is a good
   # base, includes ko, kubectl, gcloud
-  # They use: CLOUDSDK_COMPUTE_ZONE, CLOUDSDK_CONTAINER_CLUSTER, CLOUDSDK_CORE_PROJECT
+  # They use: CLOUDSDK_COMPUTE_ZONE, CLOUDSDK_CONTAINER_CLUSTER, CLOUDSDK_COREPROJECT
 #go get -u github.com/jstemmer/go-junit-report
 #2>&1 go test -timeout 1m -v ./... | tee sponge.log
 #/go/bin/go-junit-report -set-exit-code < sponge.log > ${SHORT_SHA}_test_log.xml

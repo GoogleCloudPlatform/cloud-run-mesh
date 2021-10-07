@@ -15,10 +15,15 @@
 package sshd
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"strconv"
+	"strings"
+
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 )
 
 // Helpers around sshd, using exec.
@@ -52,6 +57,43 @@ Subsystem	sftp	/usr/lib/openssh/sftp-server
 
 type SSHDConfig struct {
 	Port int
+}
+
+
+func InitDebug(kr *mesh.KRun) {
+	if _, err := os.Stat("/usr/sbin/sshd"); os.IsNotExist(err) {
+		log.Println("SSH debug disabled, sshd not installed")
+		return
+	}
+	sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
+	if err != nil {
+		log.Println("SSH debug disabled, missing sshdebug secret ", kr.Namespace, err)
+		return
+	}
+	os.Mkdir("./var/run/secrets", 0755)
+	os.Mkdir("./var/run/secrets/sshd", 0700)
+
+	err = os.WriteFile("./var/run/secrets/sshd/id_ecdsa", sshCM["id_ecdsa"], 0700)
+	if err != nil {
+		log.Println("SSH config error", err)
+		return
+	}
+	keys := ""
+	for k, v := range sshCM {
+		if strings.HasPrefix(k, "authorized_key_") {
+			keys = keys + string(v) + "\n"
+		}
+	}
+	err = os.WriteFile("./var/run/secrets/sshd/authorized_keys", []byte(keys), 0700)
+
+	err = StartSSHD(&SSHDConfig{
+		Port: 15022,
+	})
+	if err != nil {
+		log.Println("SSH failed to start", err)
+		return
+	}
+
 }
 
 // StartSSHD will start /usr/bin/sshd, with the current UID.
