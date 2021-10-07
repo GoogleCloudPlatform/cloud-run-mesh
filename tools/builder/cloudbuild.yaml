@@ -12,27 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Specialized builder - should include all deps.
+# gcloud builds submit . --config=cloudbuild.yaml
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--tag=gcr.io/$PROJECT_ID/crm-builder', '-f', 'tools/builder/Dockerfile', '.']
 
-
-FROM golang:alpine AS kosource
-
-ARG KO_GIT_TAG=main
-RUN apk update && apk add gcc bash musl-dev openssl-dev ca-certificates make git && update-ca-certificates
-
-RUN git clone --depth=1 -b "${KO_GIT_TAG}" https://github.com/google/ko
-WORKDIR ko
-RUN GOOS=linux go build -mod=vendor -o /bin/ko ./
-
-
-FROM golang:alpine
-
-COPY --from=kosource /bin/ko /usr/local/bin/ko
-
-ENV GOPATH=""
-
-# To avoid downloads when building. The builder should be rebuilt on dep changes
-#COPY go.* ./
-#RUN go mod download
-
-ENTRYPOINT ["/bin/sh"]
+images: ['gcr.io/$PROJECT_ID/crm-builder']

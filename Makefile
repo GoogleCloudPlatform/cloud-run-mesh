@@ -48,7 +48,7 @@ export HGATE_IMAGE
 
 # Build krun, fortio, push fortio, deploy to main test cloudrun config
 # Expects Istio cluster and in-cluster fortio to be running
-all: build/krun push/fortio deploy/fortio
+all: build build/krun build/fortio push/fortio deploy/fortio
 
 # Build, push, deploy hgate.
 all-hgate: build docker/hgate push/hgate deploy/hgate
@@ -69,8 +69,13 @@ test:
 # Build all binaries in one step - faster.
 # Static build so it works with 'scratch' and not dependent on distro
 build:
-	CGO_ENABLED=0  time  go build -ldflags '-s -w -extldflags "-static"' -o ${OUT}/ ./cmd/hbone/ ./cmd/krun ./cmd/hgate
-	ls -l ${OUT}
+	mkdir -p ${OUT}/bin/
+	mkdir -p ${OUT}/docker-hgate
+	mkdir -p ${OUT}/docker-krun
+	CGO_ENABLED=0  time  go build -ldflags '-s -w -extldflags "-static"' -o ${OUT}/bin/ ./cmd/hbone/ ./cmd/krun ./cmd/hgate
+	ls -l ${OUT}/bin
+	mv ${OUT}/bin/krun ${OUT}/docker-krun
+	mv ${OUT}/bin/hgate ${OUT}/docker-hgate
 
 # Build and tag krun image locally, will be used in the next phase and for local testing, no push
 
@@ -83,10 +88,10 @@ build/krun: docker/krun
 build/hgate: docker/hgate
 
 docker/hgate:
-	time docker build ${OUT}/ -f tools/docker/Dockerfile.meshcon -t ${HGATE_IMAGE}
+	time docker build ${OUT}/docker-hgate -f tools/docker/Dockerfile.meshcon -t ${HGATE_IMAGE}
 
 docker/krun:
-	time docker build ${OUT}/ -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
+	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
 
 # Same thing, using docker build - slower
 build/docker-krun:
@@ -95,7 +100,6 @@ build/docker-krun:
 # Same thing with docker
 build/docker-hgate:
 	time docker build . -f meshcon/Dockerfile -t ${HGATE_IMAGE}
-
 
 test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
 test/e2e:
@@ -112,8 +116,13 @@ push/hgate:
 push/krun:
 	docker push ${KRUN_IMAGE}
 
-push/fortio: build/fortio
+push/fortio:
 	(cd samples/fortio; make push)
+
+push/builder:
+	docker push gcr.io/${PROJECT_ID}/crm-builder:latest
+
+#### Deploy
 
 deploy/fortio:
 	(cd samples/fortio; make deploy setup-sni)
@@ -151,13 +160,13 @@ deploy/fortio-asm:
 		FORTIO_DEPLOY_EXTRA="--set-env-vars MESH_TENANT=-" \
 		make deploy)
 
-
 logs:
 	(cd samples/fortio; make logs)
 
 ssh:
 	(cd samples/fortio; make ssh)
 
+# Send traffic from pod to cloudrun
 pod2cr: POD=$(shell kubectl --namespace=fortio get -l app=fortio pod -o=jsonpath='{.items[0].metadata.name}')
 pod2cr:
 	kubectl exec -n fortio ${POD} -- fortio load ${FORTIO_LOAD_ARG} fortio-cr:8080/echo
@@ -265,11 +274,13 @@ deploy/istiod:
 
 ############ Canary (stability/e2e) ##############
 
-canary/all: push/fortio canary
-
 # Canary will deploy a 'canary' version of a cloudrun instance using the current golden image, and verify it works
 # Used in GCB, where the images are built with Kaniko
-canary: canary/deploy canary/test
+e2e: canary/deploy canary/test
+
+# Build, push and run e2e
+e2e/all: build docker/krun push/krun docker/hgate push/hgate push/fortio canary
+
 
 canary/deploy: canary/deploy-mcp canary/deploy-mcp2 canary/deploy-asm canary/deploy-auth
 
@@ -311,28 +322,39 @@ logs/fortio-mcp:
 
 config_dump:
 	@(cd samples/fortio;  make -s config_dump_ssh)
-##### GCB related targets
 
-# Create the builder docker image, used in GCB
-gcb/builder:
-	gcloud builds --project ${PROJECT_ID} submit . --config=tools/gcb/cloudbuild.yaml
-
-gcb/builder-gcloud:
-	gcloud builds --project ${PROJECT_ID} submit . --config=tools/gcloud-alpha/cloudbuild.yaml
-
-gcb/local:
-	mkdir -p ${OUT}/gcb-local
-	cloud-build-local --dryrun=false --push=true --write-workspace=${OUT}/gcb-local  --substitutions=BRANCH_NAME=local,COMMIT_SHA=local --config=cloudbuild.yaml .
-
-gcb/build-hgate:
-	gcloud builds --project ${PROJECT_ID} submit  --config=cmd/gate/cloudbuild.yaml .
-
-gcb/build:
-	gcloud builds --project ${PROJECT_ID} submit .
-
-
+# Show MCP logs
 logs-mcp:
 	gcloud --project ${PROJECT_ID} logging read \
     	   --format "csv(textPayload,jsonPayload.message)" \
     		--freshness 1h \
      		'resource.type="istio_control_plane"'
+
+##### GCB related targets
+
+# Create the builder docker image, used in GCB
+gcb/builder:
+	gcloud builds --project ${PROJECT_ID} submit . --config=tools/builder/cloudbuild.yaml
+
+# Use cloud-build-local.
+# I didn't find a way to get Kaniko to work with cloud-build-local - complaining about authorization,
+# but useful for checking syntax errors in the file.
+gcb/local:
+	mkdir -p ${OUT}/gcb-local
+	cloud-build-local --dryrun=false --push=true --write-workspace=${OUT}/gcb-local  \
+		--substitutions=_TAG=local \
+		--config=cloudbuild.yaml .
+
+gcb/local-builder:
+	mkdir -p ${OUT}/gcb-local-builder
+	cloud-build-local --dryrun=false --push=true --write-workspace=${OUT}/gcb-local-builder  \
+		--config=tools/builder/cloudbuild.yaml .
+
+build/docker-builder:
+	time docker build . -f tools/builder/Dockerfile -t gcr.io/${PROJECT_ID}/crm-builder
+
+# Submit a build request to GCB manually.
+# Useful for checking the changes without creating a PR or branch.
+gcb/submit:
+	gcloud builds --project ${PROJECT_ID}  submit . --substitutions=_TAG=localdev
+

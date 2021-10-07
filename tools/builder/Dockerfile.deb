@@ -15,27 +15,21 @@
 # Specialized builder - should include all deps.
 
 
-FROM golang:1.16 AS kosource
-ARG KO_GIT_TAG=main
-
-RUN git clone --depth=1 -b "${KO_GIT_TAG}" https://github.com/google/ko
-WORKDIR ko
-RUN GOOS=linux go build -mod=vendor -o /bin/ko ./
+FROM golang:1.16 AS golang
 
 
 FROM docker:stable as docker
+
 FROM gcr.io/istio-testing/proxyv2:latest as istio
 
 FROM gcr.io/cloud-builders/kubectl
 
-COPY --from=kosource /bin/ko /usr/local/bin/ko
-
 # Install Go - quick and dirty
-COPY --from=0 /usr/local/go /usr/local/go
+COPY --from=golang /usr/local/go /usr/local/go
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 
 RUN apt-get update && apt-get -qqy install --no-install-recommends \
-     build-essential ca-certificates curl
+     build-essential ca-certificates curl time
 
 ENV PATH="/go/bin:${PATH}:/usr/local/go/bin"
 
