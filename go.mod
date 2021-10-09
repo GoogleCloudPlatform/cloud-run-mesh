@@ -6,10 +6,11 @@ go 1.16
 
 require (
 	cloud.google.com/go v0.84.0
-	github.com/costinm/cert-ssh/ssh v0.0.0-20210914000841-64495e35bb80
 	github.com/creack/pty v1.1.13
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.1.2
+	github.com/pkg/sftp v1.13.1
+	golang.org/x/crypto v0.0.0-20210503195802-e9a32991a82e
 	golang.org/x/net v0.0.0-20210813160813-60bc85c4be6d
 	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f
 	golang.org/x/text v0.3.7 // indirect
