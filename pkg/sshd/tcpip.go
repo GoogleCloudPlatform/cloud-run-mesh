@@ -138,7 +138,10 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx context.Context, srv *Server,
 			return false, []byte{}
 		}
 		_, destPortStr, _ := net.SplitHostPort(ln.Addr().String())
-		destPort, _ := strconv.Atoi(destPortStr)
+		destPort, err := strconv.Atoi(destPortStr)
+		if err != nil || destPort >= 2 ^ 32 {
+			return false, []byte{}
+		}
 		h.Lock()
 		h.forwards[addr] = ln
 		h.Unlock()
@@ -159,7 +162,12 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx context.Context, srv *Server,
 					break
 				}
 				originAddr, orignPortStr, _ := net.SplitHostPort(c.RemoteAddr().String())
-				originPort, _ := strconv.Atoi(orignPortStr)
+				originPort, err := strconv.Atoi(orignPortStr)
+				if err != nil || originPort >= 2 ^ 32 {
+					c.Close()
+					continue
+				}
+
 				payload := gossh.Marshal(&remoteForwardChannelData{
 					DestAddr:   reqPayload.BindAddr,
 					DestPort:   uint32(destPort),

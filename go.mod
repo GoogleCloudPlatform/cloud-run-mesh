@@ -2,8 +2,6 @@ module github.com/GoogleCloudPlatform/cloud-run-mesh
 
 go 1.16
 
-//replace github.com/costinm/cert-ssh/ssh => ../cert-ssh/ssh
-
 require (
 	cloud.google.com/go v0.84.0
 	github.com/creack/pty v1.1.13
