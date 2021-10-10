@@ -15,24 +15,16 @@
 package main
 
 import (
-	"context"
-	"log"
-
-	"github.com/costinm/cert-ssh/ssh"
-	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sshd"
 )
 
 // Optional debug dependency, using cert-based SSH or loaded from a secret.
-// TODO: add conditional compilation, or move it to a separate binary that can be forked
 
+// Add an in-proccess SSHD for debug - matching kubectl exec/port-forward.
+// This adds about 688k to the binary size. Alternative is to add sshd to the container -
+// possibly dropbear (230k alpine - but also about 1M on ubuntu and harder to install
+// on distroless)
+//
 func init() {
-	initDebug = InitDebug
-}
-
-func InitDebug(kr *mesh.KRun) {
-	sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
-	if err != nil {
-		log.Println("SSH config error", err)
-	}
-	ssh.InitFromSecret(sshCM, kr.Namespace)
+	initDebug = sshd.InitDebug
 }

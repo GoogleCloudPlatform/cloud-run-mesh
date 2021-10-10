@@ -59,15 +59,27 @@ type SSHDConfig struct {
 	Port int
 }
 
+var (
+	inprocessInit func(sshCM map[string][]byte, ns string)
+)
 
 func InitDebug(kr *mesh.KRun) {
+	if inprocessInit != nil {
+		sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
+		if err != nil {
+			log.Println("SSH config error", err)
+		}
+		inprocessInit(sshCM, kr.Namespace)
+		return
+	}
+
 	if _, err := os.Stat("/usr/sbin/sshd"); os.IsNotExist(err) {
 		log.Println("SSH debug disabled, sshd not installed")
 		return
 	}
 	sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
 	if err != nil {
-		log.Println("SSH debug disabled, missing sshdebug secret ", kr.Namespace, err)
+		log.Println("SSH debug disabled, missing sshdebug secret ", err)
 		return
 	}
 	os.Mkdir("./var/run/secrets", 0755)
