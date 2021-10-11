@@ -143,7 +143,7 @@ func (hb *HBone) HandleAcceptedH2(conn net.Conn) {
 func (hac *HBoneAcceptedConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t0 := time.Now()
 	defer func() {
-		log.Println("Hbone", "", "", r, time.Since(t0))
+		log.Println(r.Method, r.URL, r.Proto, r.Host, r.RemoteAddr, time.Since(t0))
 
 		if r := recover(); r != nil {
 			fmt.Println("Recovered in hbone", r)

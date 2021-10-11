@@ -31,8 +31,10 @@ var initDebug func(run *mesh.KRun)
 func main() {
 	kr := mesh.New("")
 
+	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
 	kr.VendorInit = gcp.InitGCP
 
+	// Use env and vendor init to discover the mesh - including APIserver, XDS, roots.
 	err := kr.LoadConfig(context.Background())
 	if err != nil {
 		log.Fatal("Failed to connect to mesh ", time.Since(kr.StartTime), kr, os.Environ(), err)
@@ -56,13 +58,11 @@ func main() {
 		if err != nil {
 			log.Fatal("Failed to start the mesh agent ", err)
 		}
-		err = kr.WaitReady(10 * time.Second)
+		err = kr.WaitHTTPReady( "http://127.0.0.1:15021/healthz/ready", 10 * time.Second)
 		if err != nil {
 			log.Fatal("Mesh agent not ready ", err)
 		}
 	}
-
-	kr.StartApp()
 
 	// TODO: wait for app  ready before binding to port - using same CloudRun 'bind to port 8080' or proper health check
 
@@ -71,6 +71,8 @@ func main() {
 		// Split for conditional compilation (to compile without ssh dep)
 		go initDebug(kr)
 	}
+
+	kr.StartApp()
 
 	// Start the tunnel: accepts H2 streams, decrypt the stream as mTLS, forward plain text to 15003 (envoy) which
 	// applies the metrics/enforcements and forwards to the app on 8080
@@ -81,6 +83,13 @@ func main() {
 	}
 	// Support MeshCA (required for MCP). Citadel will be supported if it is used in the mesh.
 	auth.AddRoots([]byte(gcp.MeshCA))
+
+	if os.Getenv("APP_PORT") != "-" {
+		err = kr.WaitTCPReady("127.0.0.1:8080", 10*time.Second)
+		if err != nil {
+			log.Fatal("Timeout waiting for app", err)
+		}
+	}
 
 	// 15009 is the reserved port for HBONE using H2C. CloudRun or other gateways using H2C will forward to this
 	// port.
