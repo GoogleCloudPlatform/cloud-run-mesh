@@ -19,7 +19,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -330,4 +332,37 @@ func Is404(err error) bool {
 		}
 	}
 	return false
+}
+
+// Signals handles the special signals.
+//
+// SIGTERM - send by docker on 'docker stop'.
+// See https://cloud.google.com/blog/products/containers-kubernetes/kubernetes-best-practices-terminating-with-grace
+func (kr *KRun) Signals() {
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT)
+		s := <-sigs
+		log.Println("Received SIGINT", "total_time", time.Since(kr.StartTime))
+		if kr.agentCmd != nil {
+			kr.agentCmd.Process.Signal(s)
+		}
+		if kr.appCmd != nil {
+			kr.appCmd.Process.Signal(s)
+		}
+	}()
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGTERM)
+		s := <-sigs
+		log.Println("Received SIGTERM", "total_time", time.Since(kr.StartTime))
+		// Will start draining envoy
+		if kr.agentCmd != nil {
+			kr.agentCmd.Process.Signal(s)
+		}
+		if kr.appCmd != nil {
+			kr.appCmd.Process.Signal(s)
+		}
+	}()
+
 }

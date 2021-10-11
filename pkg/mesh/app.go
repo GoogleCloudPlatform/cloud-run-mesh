@@ -75,10 +75,14 @@ func (kr *KRun) StartApp() {
 		kr.appCmd = cmd
 		err = cmd.Wait()
 		if err != nil {
-			log.Println("Failed to wait ", cmd, err)
+			log.Println("Application err exit ", err, cmd.ProcessState.ExitCode(), time.Since(kr.StartTime))
+		} else {
+			log.Println("Application clean exit ", err, cmd.ProcessState.ExitCode(), time.Since(kr.StartTime))
 		}
-		kr.Exit(0)
+		kr.Exit(cmd.ProcessState.ExitCode())
 	}()
+
+	kr.Signals()
 }
 
 // WaitTCPReady uses the same detection as CloudRun, i.e. TCP connect.
@@ -93,13 +97,17 @@ func (kr *KRun) WaitTCPReady(addr string, max time.Duration) error {
 			if time.Now().After(deadline) {
 				return err
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
+			if conn != nil {
+				_ = conn.Close()
+			}
 			continue
 		}
 		err = conn.Close()
 		if err != nil {
-			log.Println("Unable to close TCP Socket: %v", err)
+			log.Println("WaitTCP.Close()", err)
 		}
+		log.Println("Application ready", time.Since(t0), time.Since(kr.StartTime))
 		return nil
 	}
 	return nil
