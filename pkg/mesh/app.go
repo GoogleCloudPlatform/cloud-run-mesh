@@ -15,12 +15,16 @@
 package mesh
 
 import (
+	"errors"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // StartApp uses the reminder of the command line to exec an app, using K8S_UID as UID, if present.
@@ -76,3 +80,45 @@ func (kr *KRun) StartApp() {
 		kr.Exit(0)
 	}()
 }
+
+// WaitTCPReady uses the same detection as CloudRun, i.e. TCP connect.
+func (kr *KRun) WaitTCPReady(addr string, max time.Duration) error {
+	t0 := time.Now()
+	deadline := t0.Add(max)
+
+	for {
+		// if we cant connect, count as fail
+		conn, err := net.DialTimeout("tcp", addr, deadline.Sub(time.Now()))
+		if err != nil {
+			if time.Now().After(deadline) {
+				return err
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		err = conn.Close()
+		if err != nil {
+			log.Println("Unable to close TCP Socket: %v", err)
+		}
+		return nil
+	}
+	return nil
+
+}
+
+func (kr *KRun) WaitHTTPReady(url string, max time.Duration) error {
+	t0 := time.Now()
+	for {
+		res, _ := http.Get(url)
+		if res != nil && res.StatusCode == 200 {
+			log.Println("Ready")
+			return nil
+		}
+
+		if time.Since(t0) > max {
+			return errors.New("Timeout waiting for ready")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+

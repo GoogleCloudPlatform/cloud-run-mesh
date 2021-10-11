@@ -16,12 +16,10 @@ package mesh
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -128,22 +126,6 @@ func (kr *KRun) agentCommand() *exec.Cmd {
 	}
 	args = append(args, "--stsPort=15463")
 	return exec.Command("/usr/local/bin/pilot-agent", args...)
-}
-
-func (kr *KRun) WaitReady(max time.Duration) error {
-	t0 := time.Now()
-	for {
-		res, _ := http.Get("http://127.0.0.1:15021/healthz/ready")
-		if res != nil && res.StatusCode == 200 {
-			log.Println("Ready")
-			return nil
-		}
-
-		if time.Since(t0) > max {
-			return errors.New("Timeout waiting for ready")
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
 }
 
 // StartIstioAgent creates the env and starts istio agent.
