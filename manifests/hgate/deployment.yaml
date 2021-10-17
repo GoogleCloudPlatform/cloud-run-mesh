@@ -45,6 +45,12 @@ spec:
           # Istio injection should not override this
           image: gcr.io/wlhe-cr/krun/gate:latest
           env:
+#            - name: CA_ADDR
+#              value: istiod.istio-system.svc:15012
+#            - name: XDS_ADDR
+#              value: istiod.istio-system.svc:15012
+#            - name: ENVOY_LOG_LEVEL
+#              value: debug,config:warn,main:warn,upstream:debug
             # The launcher can't usually auto-detect the namespace, except from
             # the identity.
             - name: WORKLOAD_NAMESPACE
@@ -52,6 +58,8 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+
+
           ports:
             - containerPort: 15443
               name: tls

@@ -266,21 +266,33 @@ func (kr *KRun) FindXDSAddr() string {
 
 // Internal implementation detail for the 'mesh-env' for Istio and MCP.
 // This may change, it is not a stable API - see loadMeshEnv for the other side.
+//
+// Note that XDS_ADDR is not included by default - workloads will use the (I)MCON_ADDR
+// or MCP if MESH_TENANT is set. TD will also be set automatically if ASM clusters are not
+// detected.
 func (kr *KRun) SaveToMap(d map[string]string) bool {
 	needUpdate := false
 
 	// Set the GCP specific options, extracted from metadata - if not already set.
 	needUpdate = setIfEmpty(d, "PROJECT_NUMBER", kr.ProjectNumber, needUpdate)
+	needUpdate = setIfEmpty(d, "PROJECT_ID", kr.ProjectId, needUpdate)
+
+	// If "-" or empty - MCP is not available in the config cluster, will use the mesh gateway.
 	needUpdate = setIfEmpty(d, "MESH_TENANT", kr.MeshTenant, needUpdate)
 
 	needUpdate = setIfEmpty(d, "CLUSTER_NAME", kr.ClusterName, needUpdate)
 	needUpdate = setIfEmpty(d, "CLUSTER_LOCATION", kr.ClusterLocation, needUpdate)
-	needUpdate = setIfEmpty(d, "PROJECT_ID", kr.ProjectId, needUpdate)
+
+	// Public and internal address of the mesh connector. Internal only available in GKE and similar
+	// clusters.
 	needUpdate = setIfEmpty(d, "MCON_ADDR", kr.MeshConnectorAddr, needUpdate)
 	needUpdate = setIfEmpty(d, "IMCON_ADDR", kr.MeshConnectorInternalAddr, needUpdate)
 
-	// TODO: use CAROOT_XXX to save multiple CAs (MeshCA, Citadel, other clusters)
-	needUpdate = setIfEmpty(d, "CAROOT_ISTIOD", kr.CitadelRoot, needUpdate)
+	if kr.CitadelRoot != "" {
+		// CA root of the XDS server. Empty if only MeshCA is used.
+		// TODO: use CAROOT_XXX to save multiple CAs (MeshCA, Citadel, other clusters)
+		needUpdate = setIfEmpty(d, "CAROOT_ISTIOD", kr.CitadelRoot, needUpdate)
+	}
 
 	return needUpdate
 }

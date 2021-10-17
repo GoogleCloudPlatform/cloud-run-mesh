@@ -123,7 +123,8 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		(kr.MeshTenant == "" || kr.MeshTenant == "-") {
 		// Explicitly set XDSAddr, the gate should run in the same cluster
 		// with istiod (to forward to istiod), but will use the local in-cluster address.
-		kr.XDSAddr = "istiod.istio-system.svc:15012"
+		kr.XDSAddr = "hgate-istiod.istio-system.svc:15012"
+		log.Println("MCP not detected, using hgate-istiod service", kr.MeshTenant)
 	}
 
 

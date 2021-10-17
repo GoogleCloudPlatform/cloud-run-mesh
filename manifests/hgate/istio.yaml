@@ -31,9 +31,22 @@ spec:
     - port:
         name: tls-istiod
         number: 15012
+        # Route based on SNI
         protocol: tls
       tls:
         mode: PASSTHROUGH
+      hosts:
+        - "*"
+    - port:
+        name: http
+        number: 80
+        protocol: HTTP
+      hosts:
+        - "*"
+    - port:
+        name: https
+        number: 443
+        protocol: HTTP
       hosts:
         - "*"
     - port:
@@ -68,19 +81,22 @@ spec:
     - match:
         - port: 15012
           sniHosts:
-            - "istiod.istio-system.svc"
+            - "*"
       route:
         - destination:
-            host: istiod.istio-system.svc.cluster.local
+            host: hgate-istiod.istio-system.svc.cluster.local
             port:
               number: 15012
 ---
+# The 'hgate-istiod' is a plain TCP service, disable all TLS-related
+# discovery.
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
 metadata:
   name: hgate-istiod
+  namespace: istio-system
 spec:
-  host: istiod.istio-system.svc.cluster.local
+  host: hgate-istiod.istio-system.svc.cluster.local
   trafficPolicy:
     portLevelSettings:
       - port:
