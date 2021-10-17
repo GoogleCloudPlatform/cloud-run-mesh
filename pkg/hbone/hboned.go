@@ -61,6 +61,14 @@ type HBone struct {
 	HTTPClientMesh   *http.Client
 	TcpAddr          string
 
+	// Ports is the equivalent of container ports in k8s.
+	// Name follows the same conventions as Istio and should match the port name in the Service.
+	// Port "*" means 'any' port - if set, allows connections to any port by number.
+	// Currently this is loaded from env variables named PORT_name=value, with the default PORT_http=8080
+	// TODO: refine the 'wildcard' to indicate http1/2 protocol
+	// TODO: this can be populated from a WorkloadGroup object, loaded from XDS or mesh env.
+	Ports map[string]string
+
 	TokenCallback func(ctx context.Context, host string) (string, error)
 	Mux           http.ServeMux
 
@@ -91,6 +99,7 @@ func New(auth *Auth) *HBone {
 		H2RConn:   map[*http2.ClientConn]string{},
 		TcpAddr:   "127.0.0.1:8080",
 		h2t:       h2,
+		Ports: 		 map[string]string{},
 		//&http2.Transport{
 		//	ReadIdleTimeout: 10000 * time.Second,
 		//	StrictMaxConcurrentStreams: false,

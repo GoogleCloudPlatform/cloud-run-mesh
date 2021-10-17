@@ -247,6 +247,23 @@ func (kr *KRun) SaveFile(relPath string, data []byte, mode int) {
 
 }
 
+func (kr *KRun) FindXDSAddr() string {
+	if kr.XDSAddr != "" {
+		return kr.XDSAddr
+	}
+	addr := ""
+	if kr.MeshTenant == "-" || kr.MeshTenant == "" {
+		// Explicitly in-cluster
+		addr = kr.MeshConnectorAddr + ":15012"
+	} else {
+		// we have a mesh tenant - use MCP
+		// For staging: explicitly set XDS_ADDR in mesh-env
+		// To force use of in-cluster: set tenant to "-" in mesh-env
+		addr = "meshconfig.googleapis.com:443"
+	}
+	return addr
+}
+
 // Internal implementation detail for the 'mesh-env' for Istio and MCP.
 // This may change, it is not a stable API - see loadMeshEnv for the other side.
 func (kr *KRun) SaveToMap(d map[string]string) bool {
@@ -255,7 +272,7 @@ func (kr *KRun) SaveToMap(d map[string]string) bool {
 	// Set the GCP specific options, extracted from metadata - if not already set.
 	needUpdate = setIfEmpty(d, "PROJECT_NUMBER", kr.ProjectNumber, needUpdate)
 	needUpdate = setIfEmpty(d, "MESH_TENANT", kr.MeshTenant, needUpdate)
-	needUpdate = setIfEmpty(d, "XDS_ADDR", kr.XDSAddr, needUpdate)
+
 	needUpdate = setIfEmpty(d, "CLUSTER_NAME", kr.ClusterName, needUpdate)
 	needUpdate = setIfEmpty(d, "CLUSTER_LOCATION", kr.ClusterLocation, needUpdate)
 	needUpdate = setIfEmpty(d, "PROJECT_ID", kr.ProjectId, needUpdate)

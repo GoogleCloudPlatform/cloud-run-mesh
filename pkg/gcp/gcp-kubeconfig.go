@@ -101,7 +101,6 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 	if metadata.OnGCE() {
 		// TODO: detect if the cluster is k8s from some env ?
 		// If ADC is set, we will only use the env variables. Else attempt to init from metadata server.
-		log.Println("Detecting GCE ", time.Since(t0))
 		metaProjectId, _ := metadata.ProjectID()
 		if kr.ProjectId == "" {
 			kr.ProjectId = metaProjectId
@@ -160,7 +159,6 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 		if mesh.Debug {
 			log.Println("Configs from metadata ", time.Since(t0))
 		}
-		log.Println("Running as GSA ", email, kr.ProjectId, kr.ProjectNumber, kr.InstanceID, kr.ClusterLocation)
 	}
 }
 

@@ -40,8 +40,11 @@ func main() {
 		log.Fatal("Failed to connect to mesh ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}
 
-	log.Println("K8S Client initialized", kr.ProjectId, kr.ClusterLocation, kr.ClusterName, kr.ProjectNumber,
-		kr.KSA, kr.Namespace, kr.Name, kr.Labels, kr.XDSAddr)
+	log.Println("K8S Client initialized", "cluster", kr.ProjectId + "/" +  kr.ClusterLocation + "/" + kr.ClusterName,
+		"project_number", kr.ProjectNumber, "instanceID", kr.InstanceID,
+		"ksa", kr.KSA, "ns", kr.Namespace,
+		"name", kr.Name,
+		"labels", kr.Labels, "XDS", kr.XDSAddr, "initTime", time.Since(kr.StartTime))
 
 	meshMode := true
 
