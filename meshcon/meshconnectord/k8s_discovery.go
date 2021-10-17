@@ -16,7 +16,6 @@ package meshconnectord
 
 import (
 	"context"
-	"log"
 
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	corev1 "k8s.io/api/core/v1"
@@ -52,7 +51,7 @@ type EventHandler struct {
 
 func (e EventHandler) OnAdd(obj interface{}) {
 	if sv, ok := obj.(*corev1.Service); ok {
-		log.Println("SVC:", sv.Namespace, sv.Name, sv.Labels)
+		e.sg.Services[sv.Name + "." + sv.Namespace] = sv
 		return
 	}
 	if es, ok := obj.(*discoveryv1beta1.EndpointSlice); ok {
@@ -87,18 +86,31 @@ func (e EventHandler) OnAdd(obj interface{}) {
 		//  EndpointPort{Name:*grpc,Protocol:*TCP,Port:*8081,AppProtocol:nil,},},
 		//AddressType:IPv4,}
 
-		log.Println("ES: ", es.Namespace, es.Name, len(es.Endpoints))
+		e.sg.EP[es.Name + "." + es.Namespace] = es
 		return
 	}
-	log.Println("Add", obj)
 }
 
-func (e EventHandler) OnUpdate(oldObj, newObj interface{}) {
-	log.Println("Update", newObj)
+func (e EventHandler) OnUpdate(oldObj, obj interface{}) {
+	if sv, ok := obj.(*corev1.Service); ok {
+		e.sg.Services[sv.Name + "." + sv.Namespace] = sv
+		return
+	}
+	if es, ok := obj.(*discoveryv1beta1.EndpointSlice); ok {
+		e.sg.EP[es.Name + "." + es.Namespace] = es
+		return
+	}
 }
 
 func (e EventHandler) OnDelete(obj interface{}) {
-	log.Println("Del", obj)
+	if sv, ok := obj.(*corev1.Service); ok {
+		delete(e.sg.Services, sv.Name + "." + sv.Namespace)
+		return
+	}
+	if es, ok := obj.(*discoveryv1beta1.EndpointSlice); ok {
+		delete(e.sg.EP, es.Name + "." + es.Namespace)
+		return
+	}
 }
 
 func (sg *MeshConnector) NewWatcher() {

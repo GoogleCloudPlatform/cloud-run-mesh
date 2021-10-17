@@ -31,6 +31,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -44,7 +45,9 @@ type MeshConnector struct {
 	Namespace     string
 	ConfigMapName string
 
-	stop chan struct{}
+	stop     chan struct{}
+	Services map[string]*corev1.Service
+	EP map[string]*discoveryv1beta1.EndpointSlice
 }
 
 type cachedToken struct {
@@ -94,24 +97,35 @@ func New(kr *mesh.KRun) *MeshConnector {
 		Mesh:          kr,
 		Namespace:     "istio-system",
 		ConfigMapName: "mesh-env",
+		EP: map[string]*discoveryv1beta1.EndpointSlice{},
+		Services: map[string]*corev1.Service{},
 		stop:          make(chan struct{}),
 	}
 }
 
 func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPort string) error {
 	kr := sg.Mesh
+
 	// Locate a k8s cluster
 	err := kr.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}
 
-	if kr.XDSAddr == "" {
-		err = sg.FindXDSAddr(ctx)
+	if kr.MeshTenant != "-" {
+		err = sg.FindTenant(ctx)
 		if err != nil {
 			return err
 		}
 	}
+
+	if kr.XDSAddr == "" &&
+		(kr.MeshTenant == "" || kr.MeshTenant == "-") {
+		// Explicitly set XDSAddr, the gate should run in the same cluster
+		// with istiod (to forward to istiod), but will use the local in-cluster address.
+		kr.XDSAddr = "istiod.istio-system.svc:15012"
+	}
+
 
 	if kr.MeshConnectorAddr == "" {
 		// We'll need to wait for it - is used when updating the config
@@ -151,7 +165,7 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 
 	// Will use istio-agent created certs for now. WIP: run the
 	// gate without pilot-agent/envoy, will use built-in CA providers.
-	auth, err := hbone.NewAuthFromDir(kr.BaseDir + "var/run/secrets/istio.io/")
+	auth, err := hbone.NewAuthFromDir(kr.BaseDir + "/var/run/secrets/istio.io/")
 	if err != nil {
 		return err
 	}
@@ -224,16 +238,9 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 }
 
 func FindInClusterAddr(ctx context.Context, kr *mesh.KRun) error {
-	hg, err := kr.FindHGate(ctx)
-	if err != nil {
-		if mesh.Is404(err) {
-			return nil // no error, but no address either
-		}
-		log.Println("Failed to find in-cluster, missing 'hgate' service ", err)
-		return err
-	}
-
-	kr.XDSAddr = hg + ":15012"
+	// We can discover the 'default' revision, use the address
+	// Or: require that this service exist and is created to point to default.
+	kr.XDSAddr = "istiod.istio-system.svc:15012"
 
 	return nil
 }
@@ -258,7 +265,7 @@ func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
 	}
 }
 
-// FindXDSAddr will try to find the XDSAddr using in-cluster info.
+// FindTenant will try to find the XDSAddr using in-cluster info.
 // This is called after K8S client has been initialized.
 //
 // For MCP, will expect a config map named 'env-asm-managed'
@@ -266,11 +273,11 @@ func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
 //
 // This depends on MCP and Istiod internal configs - the config map may set with the XDS_ADDR and associated configs, in
 // which case this will not be called.
-func (sg *MeshConnector) FindXDSAddr(ctx context.Context) error {
+func (sg *MeshConnector) FindTenant(ctx context.Context) error {
 	kr := sg.Mesh
 	if kr.ProjectNumber == "" {
 		log.Println("MCP requires PROJECT_NUMBER, attempting to use in-cluster")
-		return FindInClusterAddr(ctx, kr)
+		return nil
 	}
 	cmname := os.Getenv("MCP_CONFIG")
 	if cmname == "" {
@@ -283,13 +290,12 @@ func (sg *MeshConnector) FindXDSAddr(ctx context.Context) error {
 		cmname, metav1.GetOptions{})
 	if err != nil {
 		if mesh.Is404(err) {
-			return FindInClusterAddr(ctx, kr)
+			return nil
 		}
 		return err
 	}
 
 	kr.MeshTenant = s.Data["CLOUDRUN_ADDR"]
-	kr.XDSAddr = "meshconfig.googleapis.com:443"
 	log.Println("Istiod MCP discovered ", kr.MeshTenant, kr.XDSAddr,
 		kr.ProjectId, kr.ProjectNumber, kr.TrustDomain)
 
