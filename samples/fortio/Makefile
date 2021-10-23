@@ -116,6 +116,18 @@ setup-gsa:
             --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
             --role="roles/container.clusterViewer"
 
+    # Map the KSA to the GSA (Workload identity)
+	gcloud iam service-accounts add-iam-policy-binding \
+		--role roles/iam.workloadIdentityUser \
+		--member "serviceAccount:${PROJECT_ID}.svc.id.goog[${WORKLOAD_NAMESPACE}/default]" \
+		k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
+	# K8S side of the mapping.
+	kubectl annotate serviceaccount \
+        --namespace ${WORKLOAD_NAMESPACE} default \
+        iam.gke.io/gcp-service-account=k8s-${WORKLOAD_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+    # At this point, Pods running as default KSA can test:
+	# curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/service-accounts/
+
 setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
 setup-hgate:
 	gcloud run services add-iam-policy-binding ${SERVICE} \
