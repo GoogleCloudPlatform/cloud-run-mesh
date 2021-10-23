@@ -24,15 +24,16 @@ CLUSTER_NAME?=istio
 export CLUSTER_NAME
 
 TAG ?= latest
+export TAG
 
 # Derived values
 
 DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
 export DOCKER_REPO
 
-KRUN_IMAGE?=${DOCKER_REPO}:latest
+KRUN_IMAGE?=${DOCKER_REPO}:${TAG}
 
-HGATE_IMAGE?=${DOCKER_REPO}/gate:latest
+HGATE_IMAGE?=${DOCKER_REPO}/gate:${TAG}
 
 WORKLOAD_NAME?=fortio-cr
 WORKLOAD_NAMESPACE?=fortio
@@ -42,7 +43,7 @@ CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceacc
 # Also possible to use 1.11.2
 ISTIO_PROXY_IMAGE?=gcr.io/istio-testing/proxyv2:latest
 
-FORTIO_IMAGE?=gcr.io/${PROJECT_ID}/fortio-mesh:latest
+FORTIO_IMAGE?=gcr.io/${PROJECT_ID}/fortio-mesh:${TAG}
 export FORTIO_IMAGE
 export HGATE_IMAGE
 
@@ -55,6 +56,7 @@ all-hgate: build docker/hgate push/hgate deploy/hgate
 
 deploy/hgate:
 	mkdir -p ${OUT}/manifests
+	echo ${HGATE_IMAGE}
 	cat manifests/kustomization-tmpl.yaml | envsubst > ${OUT}/manifests/kustomization.yaml
 	cp -a manifests/hgate ${OUT}/manifests
 	kubectl apply -k ${OUT}/manifests
@@ -257,6 +259,7 @@ deploy/istiod:
  		istiod \
         ${ISTIO_CHARTS} \
         ${CHART_VERSION} \
+        ${ISTIOD_EXTRA} \
 		--set telemetry.enabled=true \
 		--set global.sds.token.aud="${PROJECT_ID}.svc.id.goog" \
         --set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
@@ -271,6 +274,9 @@ deploy/istiod:
         --set pilot.env.ISTIO_MULTIROOT_MESH=true \
         --set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
 		--set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS=true
+
+deploy/istiod-autopilot:
+	ISTIOD_EXTRA="--set global.operatorManageWebhooks=true --set pilot.env.INJECTION_WEBHOOK_CONFIG_NAME='' " $(MAKE) deploy/istiod
 
 ############ Canary (stability/e2e) ##############
 
