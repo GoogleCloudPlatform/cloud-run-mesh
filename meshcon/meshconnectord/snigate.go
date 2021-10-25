@@ -59,15 +59,18 @@ func New(kr *mesh.KRun) *MeshConnector {
 	}
 }
 
+// InitSNIGate will start the mesh gateway, with a special SNI router port.
+// The h2rPort is experimental, for dev/debug, for users running/debugging apps locally.
 func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPort string) error {
 	kr := sg.Mesh
 
-	// Locate a k8s cluster
+	// Locate a k8s cluster, load configs from env and from existing mesh-env.
 	err := kr.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}
 
+	// If not explicitly disabled, attempt to find MCP tenant ID and enable MCP
 	if kr.MeshTenant != "-" {
 		err = sg.FindTenant(ctx)
 		if err != nil {
@@ -75,6 +78,8 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		}
 	}
 
+	// Default the XDSAddr for this instance to the service created by the hgate install.
+	// istiod.istio-system may not be created if 'revision install' is used.
 	if kr.XDSAddr == "" &&
 		(kr.MeshTenant == "" || kr.MeshTenant == "-") {
 		// Explicitly set XDSAddr, the gate should run in the same cluster
@@ -190,14 +195,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	if err != nil {
 		return err
 	}
-
-	return nil
-}
-
-func FindInClusterAddr(ctx context.Context, kr *mesh.KRun) error {
-	// We can discover the 'default' revision, use the address
-	// Or: require that this service exist and is created to point to default.
-	kr.XDSAddr = "istiod.istio-system.svc:15012"
 
 	return nil
 }

@@ -113,9 +113,11 @@ type KRun struct {
 	// Will be saved to a file.
 	CARoots []string
 
+	// Citadel root(s) - PEM format, may have multiple roots.
+	CitadelRoot string
+
 	// MeshAddr is the location of the mesh environment file.
 	MeshAddr    string
-	CitadelRoot string
 	InstanceID  string
 }
 

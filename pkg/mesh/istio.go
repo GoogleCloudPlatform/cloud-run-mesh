@@ -157,7 +157,12 @@ func (kr *KRun) StartIstioAgent() error {
 	}
 
 	if kr.CitadelRoot != "" {
-		ioutil.WriteFile(prefix+"/var/run/secrets/istio/root-cert.pem", []byte(kr.CitadelRoot), 0755)
+		err := ioutil.WriteFile(prefix+"/var/run/secrets/istio/root-cert.pem", []byte(kr.CitadelRoot), 0755)
+		if err != nil {
+			log.Println("Failed to write citadel root", err)
+		} else {
+			log.Println("Saved Istiod Root CAs: ", prefix + "/var/run/secrets/istio/root-cert.pem")
+		}
 	}
 
 	// /dev/stdout is rejected - it is a pipe.
@@ -324,9 +329,6 @@ func (kr *KRun) StartIstioAgent() error {
 	// Environment detection: if the docker image or VM does not include an Envoy use the 'grpc agent' mode,
 	// i.e. only get certificate.
 	if _, err := os.Stat("/usr/local/bin/envoy"); os.IsNotExist(err) {
-		env = append(env, "DISABLE_ENVOY=true")
-	}
-	if _, err := os.Stat("./var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
 		env = append(env, "DISABLE_ENVOY=true")
 	}
 	// TODO: look in /var...

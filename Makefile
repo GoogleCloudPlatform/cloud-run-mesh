@@ -40,10 +40,14 @@ WORKLOAD_NAMESPACE?=fortio
 
 CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
 
-# Also possible to use 1.11.2
-ISTIO_PROXY_IMAGE?=gcr.io/istio-testing/proxyv2:latest
+ISTIO_HUB?=gcr.io/istio-testing
+export ISTIO_HUB
+ISTIO_TAG?=latest
 
-FORTIO_IMAGE?=gcr.io/${PROJECT_ID}/fortio-mesh:${TAG}
+# Also possible to use 1.11.2
+ISTIO_PROXY_IMAGE?=${ISTIO_HUB}/proxyv2:latest
+
+FORTIO_IMAGE?=${DOCKER_REPO}/fortio-mesh:${TAG}
 export FORTIO_IMAGE
 export HGATE_IMAGE
 
@@ -64,6 +68,13 @@ deploy/hgate:
 	kubectl rollout restart deployment hgate -n istio-system
 	kubectl wait deployments hgate -n istio-system --for=condition=available
 
+# Remove the namespaces and apps, for testing 'clean install'
+cluster/clean:
+	helm delete -n istio-system istiod
+	kubectl delete -k manifests/
+	kubectl delete ns istio-system || true
+	kubectl delete ns fortio || true
+	kubectl delete ns test || true
 
 test:
 	go test -timeout 2m -v ./...
@@ -245,6 +256,9 @@ helm/addcharts:
 	helm repo add istio https://istio-release.storage.googleapis.com/charts
 	helm repo update
 
+deploy/istio-base:
+	kubectl create namespace istio-system | true
+	helm install istio-base istio/base -n istio-system ${CHART_VERSION} | true
 
 # Default install of istiod, with a number of options set for interop with ASM and MCP.
 #
@@ -252,14 +266,14 @@ helm/addcharts:
 #
 # To install a revisioned istio, replace "istiod" with "istiod-REV and add --set revision=${REV}
 deploy/istiod:
-	kubectl create namespace istio-system | true
-	helm install istio-base istio/base -n istio-system ${CHART_VERSION} | true
 	helm upgrade --install \
  		-n istio-system \
  		istiod \
         ${ISTIO_CHARTS} \
         ${CHART_VERSION} \
         ${ISTIOD_EXTRA} \
+        --set global.hub=${ISTIO_HUB} \
+        --set global.tag=${ISTIO_TAG} \
 		--set telemetry.enabled=true \
 		--set global.sds.token.aud="${PROJECT_ID}.svc.id.goog" \
         --set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
