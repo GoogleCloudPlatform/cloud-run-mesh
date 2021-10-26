@@ -180,6 +180,7 @@ func (kr *KRun) StartIstioAgent() error {
 	proxyConfigEnv := os.Getenv("PROXY_CONFIG")
 	if proxyConfigEnv == "" {
 		addr := kr.FindXDSAddr()
+		kr.XDSAddr = addr
 		log.Println("XDSAddr discovery", addr, "XDS_ADDR", kr.XDSAddr, "MESH_TENANT", kr.MeshTenant)
 
 		proxyConfig := fmt.Sprintf(`{"discoveryAddress": "%s"}`, addr)
