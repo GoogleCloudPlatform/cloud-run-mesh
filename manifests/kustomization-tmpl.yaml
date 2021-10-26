@@ -26,5 +26,6 @@ resources:
   - hgate/telemetry-stackdriver-patch.yaml
 
 images:
-  - name: gcr.io/wlhe-cr/krun/gate:latest
-    newName: ${HGATE_IMAGE}
+  - name: gcr.io/wlhe-cr/krun/gate
+    newTag: ${TAG}
+    newName: ${DOCKER_REPO}/gate

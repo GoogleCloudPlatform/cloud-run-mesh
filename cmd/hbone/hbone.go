@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoogleCloudPlatform/cloud-run-mesh/meshcon/meshconnectord"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
@@ -111,7 +110,7 @@ func main() {
 
 	hb := hbone.New(auth)
 
-	tcache := meshconnectord.NewTokenCache(kr, tokenProvider)
+	tcache := sts.NewTokenCache(kr, tokenProvider)
 
 	hb.TokenCallback = tcache.Token
 

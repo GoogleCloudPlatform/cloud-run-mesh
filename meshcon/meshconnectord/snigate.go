@@ -16,12 +16,10 @@ package meshconnectord
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
@@ -31,6 +29,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -44,49 +43,9 @@ type MeshConnector struct {
 	Namespace     string
 	ConfigMapName string
 
-	stop chan struct{}
-}
-
-type cachedToken struct {
-	token      string
-	expiration time.Time
-}
-
-type TokenCache struct {
-	cache sync.Map
-	kr    *mesh.KRun
-	sts   *sts.STS
-	m     sync.Mutex
-}
-
-func NewTokenCache(kr *mesh.KRun, sts *sts.STS) *TokenCache {
-	return &TokenCache{kr: kr, sts: sts}
-}
-
-func (c *TokenCache) Token(ctx context.Context, host string) (string, error) {
-	if got, f := c.cache.Load(host); f {
-		t := got.(cachedToken)
-		if t.expiration.After(time.Now().Add(-time.Minute)) {
-			return t.token, nil
-		}
-		log.Println("Token expired", t.expiration, time.Now(), host)
-	}
-
-	mt, err := c.sts.GetRequestMetadata(ctx, host)
-
-	if err != nil {
-		return "", err
-	}
-	bt := mt["authorization"]
-	if !strings.HasPrefix(bt, "Bearer ") {
-		return "", errors.New("Invalid prefix")
-	}
-	t := bt[7:]
-	//log.Println("XXX debug Gettoken from metadata", host, k8s.TokenPayload(t), err)
-
-	c.cache.Store(host, cachedToken{t, time.Now().Add(45 * time.Minute)})
-	//log.Println("Storing JWT", host)
-	return t, nil
+	stop     chan struct{}
+	Services map[string]*corev1.Service
+	EP       map[string]*discoveryv1beta1.EndpointSlice
 }
 
 func New(kr *mesh.KRun) *MeshConnector {
@@ -94,23 +53,39 @@ func New(kr *mesh.KRun) *MeshConnector {
 		Mesh:          kr,
 		Namespace:     "istio-system",
 		ConfigMapName: "mesh-env",
+		EP:            map[string]*discoveryv1beta1.EndpointSlice{},
+		Services:      map[string]*corev1.Service{},
 		stop:          make(chan struct{}),
 	}
 }
 
+// InitSNIGate will start the mesh gateway, with a special SNI router port.
+// The h2rPort is experimental, for dev/debug, for users running/debugging apps locally.
 func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPort string) error {
 	kr := sg.Mesh
-	// Locate a k8s cluster
+
+	// Locate a k8s cluster, load configs from env and from existing mesh-env.
 	err := kr.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}
 
-	if kr.XDSAddr == "" {
-		err = sg.FindXDSAddr(ctx)
+	// If not explicitly disabled, attempt to find MCP tenant ID and enable MCP
+	if kr.MeshTenant != "-" {
+		err = sg.FindTenant(ctx)
 		if err != nil {
 			return err
 		}
+	}
+
+	// Default the XDSAddr for this instance to the service created by the hgate install.
+	// istiod.istio-system may not be created if 'revision install' is used.
+	if kr.XDSAddr == "" &&
+		(kr.MeshTenant == "" || kr.MeshTenant == "-") {
+		// Explicitly set XDSAddr, the gate should run in the same cluster
+		// with istiod (to forward to istiod), but will use the local in-cluster address.
+		kr.XDSAddr = "hgate-istiod.istio-system.svc:15012"
+		log.Println("MCP not detected, using hgate-istiod service", kr.MeshTenant)
 	}
 
 	if kr.MeshConnectorAddr == "" {
@@ -135,9 +110,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		kr.CitadelRoot = citadelRoot
 	}
 
-	// create the tokens expected for Istio (token)
-	kr.RefreshAndSaveTokens()
-
 	sg.NewWatcher()
 
 	if kr.Gateway == "" {
@@ -151,23 +123,24 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 
 	// Will use istio-agent created certs for now. WIP: run the
 	// gate without pilot-agent/envoy, will use built-in CA providers.
-	auth, err := hbone.NewAuthFromDir(kr.BaseDir + "var/run/secrets/istio.io/")
-	if err != nil {
-		return err
+	if sg.Auth == nil {
+		auth, err := hbone.NewAuthFromDir(kr.BaseDir + "/var/run/secrets/istio.io/")
+		if err != nil {
+			return err
+		}
+
+		// All namespaces are allowed to connect.
+		auth.AllowedNamespaces = []string{"*"}
+		sg.Auth = auth
 	}
-
-	// All namespaces are allowed to connect.
-	auth.AllowedNamespaces = []string{"*"}
-
-	sg.Auth = auth
-	h2r := hbone.New(auth)
+	h2r := hbone.New(sg.Auth)
 	sg.HBone = h2r
 	stsc, err := sts.NewSTS(kr)
 	if err != nil {
 		return err
 	}
 
-	tcache := NewTokenCache(kr, stsc)
+	tcache := sts.NewTokenCache(kr, stsc)
 	h2r.TokenCallback = tcache.Token
 
 	sg.updateMeshEnv(ctx)
@@ -223,21 +196,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	return nil
 }
 
-func FindInClusterAddr(ctx context.Context, kr *mesh.KRun) error {
-	hg, err := kr.FindHGate(ctx)
-	if err != nil {
-		if mesh.Is404(err) {
-			return nil // no error, but no address either
-		}
-		log.Println("Failed to find in-cluster, missing 'hgate' service ", err)
-		return err
-	}
-
-	kr.XDSAddr = hg + ":15012"
-
-	return nil
-}
-
 func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
 	// TODO: depending on error, move on or report a real error
 	kr := sg.Mesh
@@ -258,7 +216,7 @@ func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
 	}
 }
 
-// FindXDSAddr will try to find the XDSAddr using in-cluster info.
+// FindTenant will try to find the XDSAddr using in-cluster info.
 // This is called after K8S client has been initialized.
 //
 // For MCP, will expect a config map named 'env-asm-managed'
@@ -266,11 +224,11 @@ func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
 //
 // This depends on MCP and Istiod internal configs - the config map may set with the XDS_ADDR and associated configs, in
 // which case this will not be called.
-func (sg *MeshConnector) FindXDSAddr(ctx context.Context) error {
+func (sg *MeshConnector) FindTenant(ctx context.Context) error {
 	kr := sg.Mesh
 	if kr.ProjectNumber == "" {
 		log.Println("MCP requires PROJECT_NUMBER, attempting to use in-cluster")
-		return FindInClusterAddr(ctx, kr)
+		return nil
 	}
 	cmname := os.Getenv("MCP_CONFIG")
 	if cmname == "" {
@@ -283,13 +241,12 @@ func (sg *MeshConnector) FindXDSAddr(ctx context.Context) error {
 		cmname, metav1.GetOptions{})
 	if err != nil {
 		if mesh.Is404(err) {
-			return FindInClusterAddr(ctx, kr)
+			return nil
 		}
 		return err
 	}
 
 	kr.MeshTenant = s.Data["CLOUDRUN_ADDR"]
-	kr.XDSAddr = "meshconfig.googleapis.com:443"
 	log.Println("Istiod MCP discovered ", kr.MeshTenant, kr.XDSAddr,
 		kr.ProjectId, kr.ProjectNumber, kr.TrustDomain)
 

@@ -24,25 +24,30 @@ CLUSTER_NAME?=istio
 export CLUSTER_NAME
 
 TAG ?= latest
+export TAG
 
 # Derived values
 
 DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
 export DOCKER_REPO
 
-KRUN_IMAGE?=${DOCKER_REPO}:latest
+KRUN_IMAGE?=${DOCKER_REPO}:${TAG}
 
-HGATE_IMAGE?=${DOCKER_REPO}/gate:latest
+HGATE_IMAGE?=${DOCKER_REPO}/gate:${TAG}
 
 WORKLOAD_NAME?=fortio-cr
 WORKLOAD_NAMESPACE?=fortio
 
 CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
 
-# Also possible to use 1.11.2
-ISTIO_PROXY_IMAGE?=gcr.io/istio-testing/proxyv2:latest
+ISTIO_HUB?=gcr.io/istio-testing
+export ISTIO_HUB
+ISTIO_TAG?=latest
 
-FORTIO_IMAGE?=gcr.io/${PROJECT_ID}/fortio-mesh:latest
+# Also possible to use 1.11.2
+ISTIO_PROXY_IMAGE?=${ISTIO_HUB}/proxyv2:latest
+
+FORTIO_IMAGE?=${DOCKER_REPO}/fortio-mesh:${TAG}
 export FORTIO_IMAGE
 export HGATE_IMAGE
 
@@ -55,6 +60,7 @@ all-hgate: build docker/hgate push/hgate deploy/hgate
 
 deploy/hgate:
 	mkdir -p ${OUT}/manifests
+	echo ${HGATE_IMAGE}
 	cat manifests/kustomization-tmpl.yaml | envsubst > ${OUT}/manifests/kustomization.yaml
 	cp -a manifests/hgate ${OUT}/manifests
 	kubectl apply -k ${OUT}/manifests
@@ -62,6 +68,13 @@ deploy/hgate:
 	kubectl rollout restart deployment hgate -n istio-system
 	kubectl wait deployments hgate -n istio-system --for=condition=available
 
+# Remove the namespaces and apps, for testing 'clean install'
+cluster/clean:
+	helm delete -n istio-system istiod
+	kubectl delete -k manifests/
+	kubectl delete ns istio-system || true
+	kubectl delete ns fortio || true
+	kubectl delete ns test || true
 
 test:
 	go test -timeout 2m -v ./...
@@ -92,14 +105,6 @@ docker/hgate:
 
 docker/krun:
 	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
-
-# Same thing, using docker build - slower
-build/docker-krun:
-	docker build . -t ${KRUN_IMAGE}
-
-# Same thing with docker
-build/docker-hgate:
-	time docker build . -f meshcon/Dockerfile -t ${HGATE_IMAGE}
 
 test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
 test/e2e:
@@ -243,20 +248,28 @@ helm/addcharts:
 	helm repo add istio https://istio-release.storage.googleapis.com/charts
 	helm repo update
 
+deploy/istio-base:
+	kubectl create namespace istio-system | true
+	helm install istio-base istio/base -n istio-system ${CHART_VERSION} | true
 
 # Default install of istiod, with a number of options set for interop with ASM and MCP.
 #
 # TODO: add docs on how to upgrade an existing istio, explain the config.
 #
 # To install a revisioned istio, replace "istiod" with "istiod-REV and add --set revision=${REV}
+#
+# Note that trustDomain is set to the value used by ASM - on GKE this is important since it allows getting access
+# tokens. If using istio-ca ( standard istio ), OSS_ISTIO=true must be set when starting the app, to get the right
+# type of token. TODO: trust domain should be included in the mesh-env and used from there.
 deploy/istiod:
-	kubectl create namespace istio-system | true
-	helm install istio-base istio/base -n istio-system ${CHART_VERSION} | true
 	helm upgrade --install \
  		-n istio-system \
  		istiod \
         ${ISTIO_CHARTS} \
         ${CHART_VERSION} \
+        ${ISTIOD_EXTRA} \
+        --set global.hub=${ISTIO_HUB} \
+        --set global.tag=${ISTIO_TAG} \
 		--set telemetry.enabled=true \
 		--set global.sds.token.aud="${PROJECT_ID}.svc.id.goog" \
         --set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
@@ -271,6 +284,12 @@ deploy/istiod:
         --set pilot.env.ISTIO_MULTIROOT_MESH=true \
         --set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
 		--set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS=true
+
+# Special config for GKE autopilot - disable mutating-webhook related functions
+# For extra logs, add --set global.logging.level=all:debug
+deploy/istiod-autopilot:
+	ISTIOD_EXTRA="--set global.operatorManageWebhooks=true --set pilot.env.PRIORITIZED_LEADER_ELECTION=false --set pilot.env.INJECTION_WEBHOOK_CONFIG_NAME='' " \
+		$(MAKE) deploy/istiod
 
 ############ Canary (stability/e2e) ##############
 

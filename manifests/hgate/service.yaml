@@ -49,9 +49,24 @@ spec:
     # Used for docker containers on the public internet, or if CloudRun doesn't use a connector.
     - port: 15012
       name: tls-istiod
+    - port: 16012
+      name: tcp-istiod
   selector:
     app: hgate
   type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hgate-istiod
+  namespace: istio-system
+spec:
+  ports:
+    - port: 15012
+      name: tcp-istiod
+  selector:
+    app: istiod
+    istio.io/rev: default
 
 ---
 # https://cloud.google.com/kubernetes-engine/docs/how-to/internal-load-balancing

@@ -101,7 +101,6 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 	if metadata.OnGCE() {
 		// TODO: detect if the cluster is k8s from some env ?
 		// If ADC is set, we will only use the env variables. Else attempt to init from metadata server.
-		log.Println("Detecting GCE ", time.Since(t0))
 		metaProjectId, _ := metadata.ProjectID()
 		if kr.ProjectId == "" {
 			kr.ProjectId = metaProjectId
@@ -157,10 +156,7 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 		if kr.InstanceID == "" {
 			kr.InstanceID, _ = metadata.InstanceID()
 		}
-		if mesh.Debug {
-			log.Println("Configs from metadata ", time.Since(t0))
-		}
-		log.Println("Running as GSA ", email, kr.ProjectId, kr.ProjectNumber, kr.InstanceID, kr.ClusterLocation)
+		log.Println("Running as GSA ", email, kr.ProjectId, kr.ProjectNumber, kr.InstanceID, kr.ClusterLocation, time.Since(t0))
 	}
 }
 
@@ -248,6 +244,12 @@ type JwtPayload struct {
 	Sub string `json:"sub"`
 }
 
+// InitGCP loads GCP-specific metadata and discovers the config cluster.
+// This step is skipped if user has explicit configuration for required settings.
+//
+// Namespace,
+// ProjectId, ProjectNumber
+// ClusterName, ClusterLocation
 func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	// Load GCP env variables - will be needed.
 	configFromEnvAndMD(ctx, kr)
@@ -289,11 +291,9 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	} else {
 		// ~400 ms
 		cl, err = GKECluster(ctx, kr.ProjectId, kr.ClusterLocation, kr.ClusterName)
-		//rc, err := CreateRestConfig(kr, kc, kr.ProjectId, kr.ClusterLocation, kr.ClusterName)
 		if err != nil {
 			return err
 		}
-		//kr.Client, err = kubernetes.NewForConfig(rc)
 		if err != nil {
 			log.Println("Failed in NewForConfig", kr, err)
 			return err
@@ -318,7 +318,7 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 		return err
 	}
 
-	SaveKubeConfig(kc, "./var/run/.kube", "config")
+	//SaveKubeConfig(kc, "./var/run/.kube", "config")
 
 	return nil
 }

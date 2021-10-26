@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package mesh
+package meshconnectord
 
 import (
 	"context"
 	"log"
 
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ConnectHGate will connect to an in-cluster reverse gateway, and maintain the connection.
 // Deprecated - loaded from mesh.env, to avoid complexity in the client ( and extra roundtrips/startup delay)
-func (kr *KRun) FindHGate(ctx context.Context) (string, error) {
+func FindHGate(ctx context.Context, kr *mesh.KRun) (string, error) {
 
 	ts, err := kr.Client.CoreV1().Services("istio-system").Get(ctx, "hgate", metav1.GetOptions{})
 	if err != nil {

@@ -52,6 +52,10 @@ type Server struct {
 	forwardHandler *ForwardedTCPHandler
 }
 
+func init() {
+	inprocessInit = InitFromSecret
+}
+
 // InitFromSecret is a helper method to init the sshd using a secret or CA address
 func InitFromSecret(sshCM map[string][]byte, ns string) {
 

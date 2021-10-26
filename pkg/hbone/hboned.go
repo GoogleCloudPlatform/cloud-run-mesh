@@ -61,6 +61,14 @@ type HBone struct {
 	HTTPClientMesh   *http.Client
 	TcpAddr          string
 
+	// Ports is the equivalent of container ports in k8s.
+	// Name follows the same conventions as Istio and should match the port name in the Service.
+	// Port "*" means 'any' port - if set, allows connections to any port by number.
+	// Currently this is loaded from env variables named PORT_name=value, with the default PORT_http=8080
+	// TODO: refine the 'wildcard' to indicate http1/2 protocol
+	// TODO: this can be populated from a WorkloadGroup object, loaded from XDS or mesh env.
+	Ports map[string]string
+
 	TokenCallback func(ctx context.Context, host string) (string, error)
 	Mux           http.ServeMux
 
@@ -91,6 +99,7 @@ func New(auth *Auth) *HBone {
 		H2RConn:   map[*http2.ClientConn]string{},
 		TcpAddr:   "127.0.0.1:8080",
 		h2t:       h2,
+		Ports: 		 map[string]string{},
 		//&http2.Transport{
 		//	ReadIdleTimeout: 10000 * time.Second,
 		//	StrictMaxConcurrentStreams: false,
@@ -142,8 +151,9 @@ func (hb *HBone) HandleAcceptedH2(conn net.Conn) {
 
 func (hac *HBoneAcceptedConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t0 := time.Now()
+	var proxyErr error
 	defer func() {
-		log.Println(r.Method, r.URL, r.Proto, r.Host, r.RemoteAddr, time.Since(t0))
+		log.Println(r.Method, r.URL, r.Proto, r.Host, r.RemoteAddr, time.Since(t0), proxyErr)
 
 		if r := recover(); r != nil {
 			fmt.Println("Recovered in hbone", r)
@@ -172,26 +182,18 @@ func (hac *HBoneAcceptedConn) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	// TCP proxy for SSH ( no mTLS, SSH has its own equivalent)
 	if r.RequestURI == "/_hbone/22" {
-		err := hac.hb.HandleTCPProxy(w, r.Body, "localhost:15022")
-		log.Println("hbone proxy done ", r.RequestURI, err)
-
+		proxyErr = hac.hb.HandleTCPProxy(w, r.Body, "localhost:15022")
 		return
 	}
 	if r.RequestURI == "/_hbone/15003" {
-		err := hac.hb.HandleTCPProxy(w, r.Body, "localhost:15003")
-		log.Println("hbone proxy done ", r.RequestURI, err)
-
+		proxyErr = hac.hb.HandleTCPProxy(w, r.Body, "localhost:15003")
 		return
 	}
 	if r.RequestURI == "/_hbone/tcp" {
-		//w.Write([]byte{1})
-		//w.(http.Flusher).Flush()
-
-		err := hac.hb.HandleTCPProxy(w, r.Body, hac.hb.TcpAddr)
-		log.Println("hbone proxy done ", r.RequestURI, err)
-
+		proxyErr = hac.hb.HandleTCPProxy(w, r.Body, hac.hb.TcpAddr)
 		return
 	}
+
 	if r.RequestURI == "/_hbone/mtls" {
 		// Create a stream, used for proxy with caching.
 		conf := hac.hb.Auth.MeshTLSConfig
