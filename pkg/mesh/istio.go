@@ -236,6 +236,10 @@ func (kr *KRun) StartIstioAgent() error {
 			podName = podName + "-" + kr.InstanceID
 		}
 		log.Println("Setting POD_NAME from K_REVISION ", podName)
+
+		if kr.Rev == "" {
+			kr.Rev = podName
+		}
 	} else if os.Getenv("HOSTNAME") != "" {
 		podName = os.Getenv("HOSTNAME")
 		log.Println("Setting POD_NAME from HOSTNAME", podName)
@@ -243,14 +247,22 @@ func (kr *KRun) StartIstioAgent() error {
 		podName = kr.Name + "-" + strconv.Itoa(time.Now().Second())
 		log.Println("Setting POD_NAME from name, missing instance ", podName)
 	}
+	// Some default value.
+	if kr.Rev == "" {
+		kr.Rev = "v1"
+	}
 
 	// If running in k8s, this is set to an unique ID
 	env = addIfMissing(env, "POD_NAME", podName)
+	env = addIfMissing(env, "ISTIO_META_WORKLOAD_NAME", kr.Name)
+
+	env = addIfMissing(env, "SERVICE_ACCOUNT", kr.KSA)
 
 	if kr.ProjectNumber != "" {
 		env = addIfMissing(env, "ISTIO_META_MESH_ID", "proj-"+kr.ProjectNumber)
 	}
 	env = addIfMissing(env, "CANONICAL_SERVICE", kr.Name)
+	env = addIfMissing(env, "CANONICAL_REVISION", kr.Rev)
 	kr.initLabelsFile()
 
 	env = addIfMissing(env, "OUTPUT_CERTS", prefix+"/var/run/secrets/istio.io/")
@@ -303,6 +315,9 @@ func (kr *KRun) StartIstioAgent() error {
 	env = addIfMissing(env, "PROXY_CONFIG_XDS_AGENT", "true")
 
 	env = addIfMissing(env, "TRUST_DOMAIN", kr.TrustDomain)
+
+	// Gets translated to "APP_CONTAINERS" metadata, used to identify the container.
+	env = addIfMissing(env, "ISTIO_META_APP_CONTAINERS", "cloudrun")
 
 	// If MCP is available, and PROXY_CONFIG is not set explicitly
 	if kr.MeshTenant != "" &&
@@ -424,18 +439,18 @@ func (kr *KRun) initLabelsFile() {
 	labels := ""
 	if kr.Gateway != "" {
 		labels = fmt.Sprintf(
-			`version="v1"
+			`version="%s"
 security.istio.io/tlsMode="istio"
 istio="%s"
-`, kr.Gateway)
+`, kr.Rev, kr.Gateway)
 	} else {
 		labels = fmt.Sprintf(
-			`version="v1"
+			`version="%s"
 security.istio.io/tlsMode="istio"
 app="%s"
 service.istio.io/canonical-name="%s"
 environment="cloud-run-mesh"
-`, kr.Name, kr.Name)
+`, kr.Rev, kr.Name, kr.Name)
 	}
 	os.MkdirAll("./etc/istio/pod", 755)
 	err := ioutil.WriteFile("./etc/istio/pod/labels", []byte(labels), 0777)
