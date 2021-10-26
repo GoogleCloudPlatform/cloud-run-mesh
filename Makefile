@@ -106,14 +106,6 @@ docker/hgate:
 docker/krun:
 	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
 
-# Same thing, using docker build - slower
-build/docker-krun:
-	docker build . -t ${KRUN_IMAGE}
-
-# Same thing with docker
-build/docker-hgate:
-	time docker build . -f meshcon/Dockerfile -t ${HGATE_IMAGE}
-
 test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
 test/e2e:
 	curl  -v  ${CR_URL}/fortio/fetch2/?url=http%3A%2F%2Ffortio.fortio.svc%3A8080%2Fecho
@@ -265,6 +257,10 @@ deploy/istio-base:
 # TODO: add docs on how to upgrade an existing istio, explain the config.
 #
 # To install a revisioned istio, replace "istiod" with "istiod-REV and add --set revision=${REV}
+#
+# Note that trustDomain is set to the value used by ASM - on GKE this is important since it allows getting access
+# tokens. If using istio-ca ( standard istio ), OSS_ISTIO=true must be set when starting the app, to get the right
+# type of token. TODO: trust domain should be included in the mesh-env and used from there.
 deploy/istiod:
 	helm upgrade --install \
  		-n istio-system \
@@ -289,8 +285,11 @@ deploy/istiod:
         --set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
 		--set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS=true
 
+# Special config for GKE autopilot - disable mutating-webhook related functions
+# For extra logs, add --set global.logging.level=all:debug
 deploy/istiod-autopilot:
-	ISTIOD_EXTRA="--set global.operatorManageWebhooks=true --set pilot.env.INJECTION_WEBHOOK_CONFIG_NAME='' " $(MAKE) deploy/istiod
+	ISTIOD_EXTRA="--set global.operatorManageWebhooks=true --set pilot.env.PRIORITIZED_LEADER_ELECTION=false --set pilot.env.INJECTION_WEBHOOK_CONFIG_NAME='' " \
+		$(MAKE) deploy/istiod
 
 ############ Canary (stability/e2e) ##############
 

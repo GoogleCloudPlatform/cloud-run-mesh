@@ -200,6 +200,7 @@ func (kr *KRun) StartIstioAgent() error {
 		// Temp workaround to handle OSS-specific behavior. By default we will expect OSS Istio
 		// to be installed in 'compatibility' mode with ASM, i.e. accept both istio-ca and trust domain
 		// as audience.
+		// TODO: use the trust domain from mesh-env
 		if os.Getenv("OSS_ISTIO") != "" {
 			log.Println("Using istio-ca audience")
 			kr.Aud2File["istio-ca"] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"

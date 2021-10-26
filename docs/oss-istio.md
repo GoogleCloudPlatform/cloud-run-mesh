@@ -22,3 +22,6 @@ make deploy/istiod
 make deploy/hgate
 
 ```
+If all goes well, check that the mesh-env was created: `kubectl -n istio-system get cm mesh-env -o yaml`
+This will be used by workloads in CloudRun/Docker and other environments where pod injection is not used, and 
+should include the typical values that K8S injections will add to the pods.
