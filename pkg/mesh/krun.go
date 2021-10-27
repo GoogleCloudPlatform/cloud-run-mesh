@@ -67,6 +67,9 @@ type KRun struct {
 	// TODO: use service name as default
 	Name string
 
+	// Revision
+	Rev string
+
 	// If not empty, will run Istio-agent as a gateway (router instead of sidecar)
 	// with the "istio: $Gateway" label.
 	Gateway string
