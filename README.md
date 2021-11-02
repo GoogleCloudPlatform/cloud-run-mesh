@@ -42,7 +42,7 @@ changes in the mesh startup.
 
 # Architecture
 
-![alt text](https://github.com/GoogleCloudPlatform/cloud-run-mesh/blob/main/architecture.png)
+![alt text](https://github.com/GoogleCloudPlatform/cloud-run-mesh/blob/main/CR-ASM-architecture.png)
 
 ## Before you begin
 
