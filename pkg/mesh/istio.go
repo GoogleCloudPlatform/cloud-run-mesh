@@ -157,7 +157,12 @@ func (kr *KRun) StartIstioAgent() error {
 	}
 
 	if kr.CitadelRoot != "" {
-		ioutil.WriteFile(prefix+"/var/run/secrets/istio/root-cert.pem", []byte(kr.CitadelRoot), 0755)
+		err := ioutil.WriteFile(prefix+"/var/run/secrets/istio/root-cert.pem", []byte(kr.CitadelRoot), 0755)
+		if err != nil {
+			log.Println("Failed to write citadel root", err)
+		} else {
+			log.Println("Saved Istiod Root CAs: ", prefix + "/var/run/secrets/istio/root-cert.pem")
+		}
 	}
 
 	// /dev/stdout is rejected - it is a pipe.
@@ -175,6 +180,7 @@ func (kr *KRun) StartIstioAgent() error {
 	proxyConfigEnv := os.Getenv("PROXY_CONFIG")
 	if proxyConfigEnv == "" {
 		addr := kr.FindXDSAddr()
+		kr.XDSAddr = addr
 		log.Println("XDSAddr discovery", addr, "XDS_ADDR", kr.XDSAddr, "MESH_TENANT", kr.MeshTenant)
 
 		proxyConfig := fmt.Sprintf(`{"discoveryAddress": "%s"}`, addr)
@@ -195,6 +201,7 @@ func (kr *KRun) StartIstioAgent() error {
 		// Temp workaround to handle OSS-specific behavior. By default we will expect OSS Istio
 		// to be installed in 'compatibility' mode with ASM, i.e. accept both istio-ca and trust domain
 		// as audience.
+		// TODO: use the trust domain from mesh-env
 		if os.Getenv("OSS_ISTIO") != "" {
 			log.Println("Using istio-ca audience")
 			kr.Aud2File["istio-ca"] = kr.BaseDir + "/var/run/secrets/tokens/istio-token"
@@ -229,6 +236,10 @@ func (kr *KRun) StartIstioAgent() error {
 			podName = podName + "-" + kr.InstanceID
 		}
 		log.Println("Setting POD_NAME from K_REVISION ", podName)
+
+		if kr.Rev == "" {
+			kr.Rev = podName
+		}
 	} else if os.Getenv("HOSTNAME") != "" {
 		podName = os.Getenv("HOSTNAME")
 		log.Println("Setting POD_NAME from HOSTNAME", podName)
@@ -236,14 +247,22 @@ func (kr *KRun) StartIstioAgent() error {
 		podName = kr.Name + "-" + strconv.Itoa(time.Now().Second())
 		log.Println("Setting POD_NAME from name, missing instance ", podName)
 	}
+	// Some default value.
+	if kr.Rev == "" {
+		kr.Rev = "v1"
+	}
 
 	// If running in k8s, this is set to an unique ID
 	env = addIfMissing(env, "POD_NAME", podName)
+	env = addIfMissing(env, "ISTIO_META_WORKLOAD_NAME", kr.Name)
+
+	env = addIfMissing(env, "SERVICE_ACCOUNT", kr.KSA)
 
 	if kr.ProjectNumber != "" {
 		env = addIfMissing(env, "ISTIO_META_MESH_ID", "proj-"+kr.ProjectNumber)
 	}
 	env = addIfMissing(env, "CANONICAL_SERVICE", kr.Name)
+	env = addIfMissing(env, "CANONICAL_REVISION", kr.Rev)
 	kr.initLabelsFile()
 
 	env = addIfMissing(env, "OUTPUT_CERTS", prefix+"/var/run/secrets/istio.io/")
@@ -297,6 +316,9 @@ func (kr *KRun) StartIstioAgent() error {
 
 	env = addIfMissing(env, "TRUST_DOMAIN", kr.TrustDomain)
 
+	// Gets translated to "APP_CONTAINERS" metadata, used to identify the container.
+	env = addIfMissing(env, "ISTIO_META_APP_CONTAINERS", "cloudrun")
+
 	// If MCP is available, and PROXY_CONFIG is not set explicitly
 	if kr.MeshTenant != "" &&
 		kr.MeshTenant != "-" &&
@@ -324,9 +346,6 @@ func (kr *KRun) StartIstioAgent() error {
 	// Environment detection: if the docker image or VM does not include an Envoy use the 'grpc agent' mode,
 	// i.e. only get certificate.
 	if _, err := os.Stat("/usr/local/bin/envoy"); os.IsNotExist(err) {
-		env = append(env, "DISABLE_ENVOY=true")
-	}
-	if _, err := os.Stat("./var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
 		env = append(env, "DISABLE_ENVOY=true")
 	}
 	// TODO: look in /var...
@@ -420,18 +439,18 @@ func (kr *KRun) initLabelsFile() {
 	labels := ""
 	if kr.Gateway != "" {
 		labels = fmt.Sprintf(
-			`version="v1"
+			`version="%s"
 security.istio.io/tlsMode="istio"
 istio="%s"
-`, kr.Gateway)
+`, kr.Rev, kr.Gateway)
 	} else {
 		labels = fmt.Sprintf(
-			`version="v1"
+			`version="%s"
 security.istio.io/tlsMode="istio"
 app="%s"
 service.istio.io/canonical-name="%s"
 environment="cloud-run-mesh"
-`, kr.Name, kr.Name)
+`, kr.Rev, kr.Name, kr.Name)
 	}
 	os.MkdirAll("./etc/istio/pod", 755)
 	err := ioutil.WriteFile("./etc/istio/pod/labels", []byte(labels), 0777)

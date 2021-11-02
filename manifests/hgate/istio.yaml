@@ -50,20 +50,11 @@ spec:
       hosts:
         - "*"
     - port:
-        name: https
+        name: https-hb
         number: 15008
         protocol: HTTPS
       tls:
         mode: ISTIO_MUTUAL
-      hosts:
-        - "*"
-    # Temp, testing
-    - port:
-        name: tls-istiodtest
-        number: 15099
-        protocol: tls
-      tls:
-        mode: PASSTHROUGH
       hosts:
         - "*"
 ---

@@ -109,6 +109,9 @@ pull:
 
 ###########################################
 
+# Create a Google Service Account (GSA) associated with the k8s namespace.
+# Grant 'clusterViewer' role (container.clusters,resourcemanager.projects)(.get,.list)
+# TODO: document alternative (storing cluster config in mesh.env)
 setup-gsa:
 	gcloud --project ${PROJECT_ID} iam service-accounts create k8s-${WORKLOAD_NAMESPACE} \
       --display-name "Service account with access to ${WORKLOAD_NAMESPACE} k8s namespace"

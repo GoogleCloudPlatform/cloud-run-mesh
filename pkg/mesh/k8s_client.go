@@ -147,7 +147,7 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 	return err
 }
 
-// K8SClient will discover a K8S config cluster and return the client
+// K8SClient will discover a K8S config cluster.
 func (kr *KRun) K8SClient(ctx context.Context) error {
 	if kr.Client != nil {
 		return nil

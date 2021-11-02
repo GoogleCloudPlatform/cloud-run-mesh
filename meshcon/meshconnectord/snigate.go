@@ -45,7 +45,7 @@ type MeshConnector struct {
 
 	stop     chan struct{}
 	Services map[string]*corev1.Service
-	EP map[string]*discoveryv1beta1.EndpointSlice
+	EP       map[string]*discoveryv1beta1.EndpointSlice
 }
 
 func New(kr *mesh.KRun) *MeshConnector {
@@ -53,21 +53,24 @@ func New(kr *mesh.KRun) *MeshConnector {
 		Mesh:          kr,
 		Namespace:     "istio-system",
 		ConfigMapName: "mesh-env",
-		EP: map[string]*discoveryv1beta1.EndpointSlice{},
-		Services: map[string]*corev1.Service{},
+		EP:            map[string]*discoveryv1beta1.EndpointSlice{},
+		Services:      map[string]*corev1.Service{},
 		stop:          make(chan struct{}),
 	}
 }
 
+// InitSNIGate will start the mesh gateway, with a special SNI router port.
+// The h2rPort is experimental, for dev/debug, for users running/debugging apps locally.
 func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPort string) error {
 	kr := sg.Mesh
 
-	// Locate a k8s cluster
+	// Locate a k8s cluster, load configs from env and from existing mesh-env.
 	err := kr.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}
 
+	// If not explicitly disabled, attempt to find MCP tenant ID and enable MCP
 	if kr.MeshTenant != "-" {
 		err = sg.FindTenant(ctx)
 		if err != nil {
@@ -75,6 +78,8 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		}
 	}
 
+	// Default the XDSAddr for this instance to the service created by the hgate install.
+	// istiod.istio-system may not be created if 'revision install' is used.
 	if kr.XDSAddr == "" &&
 		(kr.MeshTenant == "" || kr.MeshTenant == "-") {
 		// Explicitly set XDSAddr, the gate should run in the same cluster
@@ -82,7 +87,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		kr.XDSAddr = "hgate-istiod.istio-system.svc:15012"
 		log.Println("MCP not detected, using hgate-istiod service", kr.MeshTenant)
 	}
-
 
 	if kr.MeshConnectorAddr == "" {
 		// We'll need to wait for it - is used when updating the config
@@ -106,9 +110,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		kr.CitadelRoot = citadelRoot
 	}
 
-	// create the tokens expected for Istio (token)
-	kr.RefreshAndSaveTokens()
-
 	sg.NewWatcher()
 
 	if kr.Gateway == "" {
@@ -122,16 +123,17 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 
 	// Will use istio-agent created certs for now. WIP: run the
 	// gate without pilot-agent/envoy, will use built-in CA providers.
-	auth, err := hbone.NewAuthFromDir(kr.BaseDir + "/var/run/secrets/istio.io/")
-	if err != nil {
-		return err
+	if sg.Auth == nil {
+		auth, err := hbone.NewAuthFromDir(kr.BaseDir + "/var/run/secrets/istio.io/")
+		if err != nil {
+			return err
+		}
+
+		// All namespaces are allowed to connect.
+		auth.AllowedNamespaces = []string{"*"}
+		sg.Auth = auth
 	}
-
-	// All namespaces are allowed to connect.
-	auth.AllowedNamespaces = []string{"*"}
-
-	sg.Auth = auth
-	h2r := hbone.New(auth)
+	h2r := hbone.New(sg.Auth)
 	sg.HBone = h2r
 	stsc, err := sts.NewSTS(kr)
 	if err != nil {
@@ -190,14 +192,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	if err != nil {
 		return err
 	}
-
-	return nil
-}
-
-func FindInClusterAddr(ctx context.Context, kr *mesh.KRun) error {
-	// We can discover the 'default' revision, use the address
-	// Or: require that this service exist and is created to point to default.
-	kr.XDSAddr = "istiod.istio-system.svc:15012"
 
 	return nil
 }

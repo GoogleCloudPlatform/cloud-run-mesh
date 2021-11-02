@@ -67,6 +67,9 @@ type KRun struct {
 	// TODO: use service name as default
 	Name string
 
+	// Revision
+	Rev string
+
 	// If not empty, will run Istio-agent as a gateway (router instead of sidecar)
 	// with the "istio: $Gateway" label.
 	Gateway string
@@ -113,10 +116,12 @@ type KRun struct {
 	// Will be saved to a file.
 	CARoots []string
 
-	// MeshAddr is the location of the mesh environment file.
-	MeshAddr    string
+	// Citadel root(s) - PEM format, may have multiple roots.
 	CitadelRoot string
-	InstanceID  string
+
+	// MeshAddr is the location of the mesh environment file.
+	MeshAddr   string
+	InstanceID string
 }
 
 func New(addr string) *KRun {
@@ -247,9 +252,21 @@ func (kr *KRun) SaveFile(relPath string, data []byte, mode int) {
 
 }
 
+// FindXDSAddr will determine which discovery address to use.
+//
+// The logic is:
+// - if "mesh tenant" is set - use MCP. This is the main case.
+// - if "mesh tehant" is not set - use the mesh connector for ASM/OSS
+// - if an XDS_ADDR is explicitly set, use it - unless it is invalid ( MCP without tenant ID)
 func (kr *KRun) FindXDSAddr() string {
 	if kr.XDSAddr != "" {
-		return kr.XDSAddr
+		if (kr.MeshTenant == "-" || kr.MeshTenant == "") &&
+			strings.Contains(kr.XDSAddr, "googleapis.com") &&
+			strings.Contains(kr.XDSAddr, "meshconfig") {
+			log.Println("Ignoring meshconfig XDS address without tenant, using mesh connector")
+		} else {
+			return kr.XDSAddr
+		}
 	}
 	addr := ""
 	if kr.MeshTenant == "-" || kr.MeshTenant == "" {

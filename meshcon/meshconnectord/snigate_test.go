@@ -30,12 +30,15 @@ import (
 
 // TestSNIGate is e2e, requires a k8s connection (kube config is fine)
 // Also requires certificates to be created - will not start agent or envoy
-func xTestSNIGate(t *testing.T) {
+func TestSNIGate(t *testing.T) {
 	gateK8S := mesh.New("")
 	gateK8S.XDSAddr = "-" // prevent pilot-agent from starting
 	gateK8S.BaseDir = "../../"
 
 	gate := New(gateK8S)
+
+	// By default Auth is created using pilot-agent generated certs.
+	gate.Auth = hbone.NewAuth()
 
 	err := gate.InitSNIGate(context.Background(), ":0", ":0")
 	if err != nil {
@@ -43,65 +46,60 @@ func xTestSNIGate(t *testing.T) {
 	}
 	t.Log("Gate listening on ", gate.SNIListener.Addr())
 
-	// Using same credentials - can be a separate service in same namespace
-	aliceAuth, err := hbone.NewAuthFromDir("")
+	t.Run("client", func(t *testing.T) {
+		aliceMesh := mesh.New("")
+		aliceMesh.XDSAddr = "-" // prevent pilot-agent from starting
+		aliceMesh.BaseDir = "../../"
 
-	alice := hbone.New(aliceAuth)
-	// TODO: use the full URL of CR, and a magic port ?
+		ctx, cf := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cf()
 
-	aliceToFortio := alice.NewClient("fortio-cr.fortio.svc.cluster.local:8080")
-	aliceToFortio.NewEndpoint("")
-
-}
-
-func xTestSNIGateClient(t *testing.T) {
-	kr := mesh.New("")
-	kr.XDSAddr = "-" // prevent pilot-agent from starting
-	kr.BaseDir = "../../"
-
-	ctx, cf := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cf()
-
-	err := kr.LoadConfig(ctx)
-	if err != nil {
-		t.Skip("Skipping test, no k8s environment")
-	}
-
-	auth, err := hbone.NewAuthFromDir(kr.BaseDir + "var/run/secrets/istio.io/")
-	if err != nil {
-		t.Skip("Skipping test, missing certificates.")
-	}
-
-	alice := hbone.New(auth)
-
-	addr, err := kr.FindHGate(ctx)
-	if err != nil {
-		t.Fatal("Error finding gate")
-	}
-	if addr == "" {
-		t.Skip("Missing gate")
-	}
-
-	// TODO: use the full URL of CR, and a magic port ?
-
-	t.Run("sni-to-test", func(t *testing.T) {
-		aliceToFortio := alice.NewClient("fortio-cr.fortio.svc.cluster.local:8080")
-
-		// Create an endpoint for the gate.
-		ep := aliceToFortio.NewEndpoint("https://" + addr + ":15443/_hbone/tcp")
-		ep.SNI = "outbound_.8080_._.default.default.svc.cluster.local"
-
-		rin, lout := io.Pipe()
-		lin, rout := io.Pipe()
-
-		err = ep.Proxy(context.Background(), rin, rout)
+		err := aliceMesh.LoadConfig(ctx)
 		if err != nil {
-			t.Fatal(err)
+			t.Skip("Skipping test, no k8s environment")
 		}
 
-		lout.Write([]byte("GET / HTTP/1.1\n\n"))
-		d, err := ioutil.ReadAll(lin)
-		log.Println(d, err)
+		auth, err := hbone.NewAuthFromDir(aliceMesh.BaseDir + "var/run/secrets/istio.io/")
+		if err != nil {
+			t.Skip("Skipping test, missing certificates.")
+		}
+
+		alice := hbone.New(auth)
+
+		addr := aliceMesh.MeshConnectorAddr
+		if addr == "" {
+			t.Skip("Missing gate")
+		}
+
+		// TODO: use the full URL of CR, and a magic port ?
+
+
+		// Disabled temp - would only work in cluster, needs access to the internal
+		// address.
+		// WIP: deploy an in-cluster test app that can be used to trigger this or port forward
+		t.Run("sni-to-test", func(t *testing.T) {
+			if !aliceMesh.InCluster {
+				t.Skip("Only in-cluster")
+			}
+			aliceToFortio := alice.NewClient("fortio-cr.fortio.svc.cluster.local:8080")
+
+			// Create an endpoint for the gate.
+			ep := aliceToFortio.NewEndpoint("https://" + addr + ":15443/_hbone/tcp")
+			ep.SNI = "outbound_.8080_._.default.default.svc.cluster.local"
+
+			rin, lout := io.Pipe()
+			lin, rout := io.Pipe()
+
+			err = ep.Proxy(context.Background(), rin, rout)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			lout.Write([]byte("GET / HTTP/1.1\n\n"))
+			d, err := ioutil.ReadAll(lin)
+			log.Println(d, err)
+		})
+		// TODO: connect, verify tokens
 	})
 }
 

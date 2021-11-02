@@ -20,8 +20,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 )
@@ -64,55 +62,42 @@ var (
 )
 
 func InitDebug(kr *mesh.KRun) {
-	if inprocessInit != nil {
-		sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
-		if err != nil {
-			log.Println("SSH config error", err)
-		}
-		inprocessInit(sshCM, kr.Namespace)
-		return
-	}
-
-	if _, err := os.Stat("/usr/sbin/sshd"); os.IsNotExist(err) {
-		log.Println("SSH debug disabled, sshd not installed")
-		return
-	}
 	sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
 	if err != nil {
 		log.Println("SSH debug disabled, missing sshdebug secret ", err)
 		return
 	}
-	os.Mkdir("./var/run/secrets", 0755)
-	os.Mkdir("./var/run/secrets/sshd", 0700)
 
-	err = os.WriteFile("./var/run/secrets/sshd/id_ecdsa", sshCM["id_ecdsa"], 0700)
-	if err != nil {
-		log.Println("SSH config error", err)
+	if _, err := os.Stat("/usr/sbin/sshd"); os.IsNotExist(err) {
+		if inprocessInit != nil {
+			inprocessInit(sshCM, kr.Namespace)
+			return
+		}
+		log.Println("SSH debug disabled, sshd not installed")
 		return
 	}
-	keys := ""
+
+	os.Mkdir("./var/run/secrets", 0755)
+
+	base := "./var/run/secrets/" + "sshd"
+	os.Mkdir(base, 0700)
+
 	for k, v := range sshCM {
-		if strings.HasPrefix(k, "authorized_key_") {
-			keys = keys + string(v) + "\n"
+		err = os.WriteFile(base + k, v, 0700)
+		if err != nil {
+			log.Println("Secret write error", k, err)
+			return
 		}
 	}
-	err = os.WriteFile("./var/run/secrets/sshd/authorized_keys", []byte(keys), 0700)
 
-	err = StartSSHD(&SSHDConfig{
-		Port: 15022,
-	})
-	if err != nil {
-		log.Println("SSH failed to start", err)
-		return
-	}
+	//keys := ""
+	//for k, v := range sshCM {
+	//	if strings.HasPrefix(k, "authorized_key") {
+	//		keys = keys + string(v) + "\n"
+	//	}
+	//}
+	//err = os.WriteFile("./var/run/secrets/sshd/authorized_keys", []byte(keys), 0700)
 
-}
-
-// StartSSHD will start /usr/bin/sshd, with the current UID.
-// This works for non-root users as well.
-//
-//
-func StartSSHD(cfg *SSHDConfig) error {
 
 	// /usr/sbin/sshd -p 15022 -e -D -h ~/.ssh/ec-key.pem
 	// -f config
@@ -122,45 +107,21 @@ func StartSSHD(cfg *SSHDConfig) error {
 	// -h or -o HostKey
 	// -p or -o Port
 	//
-	if cfg == nil {
-		cfg = &SSHDConfig{}
-	}
-	if cfg.Port == 0 {
-		cfg.Port = 15022
-	}
 
 	pwd, _ := os.Getwd()
 	sshd := pwd + "/var/run/secrets"
 	os.Mkdir("./var/run/secrets", 0755)
 	os.Mkdir("./var/run/secrets/sshd", 0700)
 
-	if _, err := os.Stat(sshd + "/id_ecdsa"); os.IsNotExist(err) {
-		// -q  - quiet
-		// -f - output file
-		// -N "" - no passphrase
-		// -t ecdsa - keytype
-		os.StartProcess("/usr/bin/ssh-keygen",
-			[]string{
-				"-q",
-				"-f",
-				sshd + "/id_ecdsa",
-				"-N",
-				"",
-				"-t",
-				"ecdsa",
-			},
-			&os.ProcAttr{})
-	}
 	if _, err := os.Stat(sshd + "/sshd_config"); os.IsNotExist(err) {
 		ioutil.WriteFile(sshd+"/sshd_confing", []byte(fmt.Sprintf(sshdConfig, sshd, sshd)), 0700)
 	}
 
-	_, err := os.StartProcess("/usr/sbin/sshd",
+	_, err = os.StartProcess("/usr/sbin/sshd",
 		[]string{"-f", sshd + "/sshd_config",
 			"-e",
 			"-D",
-			"-p", strconv.Itoa(cfg.Port),
+			//"-p", strconv.Itoa(15022),
 		}, nil)
 
-	return err
 }
