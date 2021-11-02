@@ -357,8 +357,6 @@ The 'golden image' includes the istio sidecar components and a launcher, similar
 The application works the same as Pods or VMs with Istio support: outgoing requests are intercepted then sent to Envoy
 where mTLS and policies are handled.
 
-For requests from Pods to CloudRun, the WorkloadGroup and other configs created by [TODO this sentence is incomplete]
-
 ## Debugging and troubleshooting
 
 For install, few useful commands:
