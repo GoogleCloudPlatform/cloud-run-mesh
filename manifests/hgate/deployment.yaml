@@ -43,7 +43,8 @@ spec:
       containers:
         - name: istio-proxy
           # Istio injection should not override this
-          image: gcr.io/wlhe-cr/krun/gate:latest
+          image: gcr.io/wlhe-cr/krun/gate:main
+          imagePullPolicy: Always
           env:
 #            - name: CA_ADDR
 #              value: istiod.istio-system.svc:15012
