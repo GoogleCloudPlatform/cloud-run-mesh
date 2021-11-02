@@ -40,6 +40,10 @@ in Pods, VMs or other mesh-enabled CloudRun services.
 The code is based on the Istio VM startup script and injection template and will need to be kept in sync with future
 changes in the mesh startup.
 
+# Architecture
+
+![alt text](https://github.com/GoogleCloudPlatform/cloud-run-mesh/blob/main/architecture.png)
+
 ## Before you begin
 
 Set the common environment variables used in this document:
