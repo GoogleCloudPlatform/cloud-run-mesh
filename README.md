@@ -100,7 +100,7 @@ Requirements:
 
 Notes: 
 - In-cluster ASM with `-ca mesh-ca` is not , but managed ASM is. You can use managed ASM by applying the `--managed` flag instead.
-- OSS Istio requires additional setup steps, will be documented separately. [TODO ARE THESE DOCUMENTED?]
+- OSS Istio requires additional setup steps, will be documented separately.
 
 ### Serverless connector setup (once per project / region / VPC network)
 
@@ -120,7 +120,7 @@ We recommend using a dedicated Google Service Account for each namespace. This r
 to setup (once per namespace).
 
 The Google Service Account running the CloudRun service will be mapped to a K8s namespace. Currently the 'default'
-K8s service account in the namespace is used - custom setup will be documented separately. [TODO is this documented?]
+K8s service account in the namespace is used - custom setup will be documented separately.
 
 You must grant the service account used by CloudRun access to the GKE APIserver with minimal permissions.
 
@@ -151,7 +151,7 @@ admin permissions, but it does require IAM permissions on the project running th
                 --role="roles/container.clusterViewer"
     ```
 
-1. [TODO is this temporary step still required?] Grant additional RBAC permissions to the google service account, allowing it to access in-namespace config map and use
+1. Grant additional RBAC permissions to the google service account, allowing it to access in-namespace config map and use
    TokenReview for the default KSA. (this step is also temporary, WIP to make it optional). This is used to get the
    MeshCA certificate and communicate with the managed control plane - Istio injector is mounting the equivalent tokens.
    If the app is using K8s, you should grant the required permissions to the mapped K8s service account ('default') - at 
@@ -223,7 +223,7 @@ For versions of `gcloud` older than 353.0, replace `--execution-environment=gen2
 
 Note that CLUSTER_NAME and CLUSTER_LOCATION are optional because krun picks a config cluster in the same region that is setup
 with MCP and fallbacks to another config cluster if the local cluster is unavailable. Cluster names starting with 'istio'
-will be used first in a region. (Will likely change to use a dedicated label on the project - WIP) [TODO did this change?]
+will be used first in a region. (Will likely change to use a dedicated label on the project - WIP)
 
 - `gcloud run deploy SERVICE --platform=managed --project --region` is common required parameters
 - `--execution-environment=gen2` is currently required to have iptables enabled. Without it the 'whitebox' mode will be
@@ -236,7 +236,7 @@ will be used first in a region. (Will likely change to use a dedicated label on 
 
 For workloads in K8s to communicate with the CloudRun service you must create a few Istio configurations.
 
-This step will be replaced by auto-registration (WIP) [TODO still WIP?], but is currently required:
+This step will be replaced by auto-registration (WIP), but is currently required:
 
 ```shell
 export SNI_GATE_IP=$(kubectl -n istio-system get service internal-hgate -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
