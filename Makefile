@@ -377,3 +377,16 @@ build/docker-builder:
 gcb/submit:
 	gcloud builds --project ${PROJECT_ID}  submit . --substitutions=_TAG=localdev
 
+# Create a tagged release, promoting current main
+release/tag:
+	gcrane tag gcr.io/wlhe-cr/krun:main ${REL_TAG}
+	gcrane tag gcr.io/wlhe-cr/krun/gate:main ${REL_TAG}
+	gcrane tag gcr.io/wlhe-cr/fortio-mesh:main ${REL_TAG}
+
+
+# Promote 'main' branch to latest
+release/latest:
+	gcrane tag gcr.io/wlhe-cr/krun:main latest
+	gcrane tag gcr.io/wlhe-cr/krun/gate:main latest
+	gcrane tag gcr.io/wlhe-cr/fortio-mesh:main latest
+

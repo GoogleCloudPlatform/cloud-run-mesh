@@ -21,22 +21,22 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: fortio
+  name: fortio-mcp
 spec:
   ports:
     - port: 8080
       name: http-echo
   selector:
-    app: fortio
+    app: fortio-mcp
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fortio
+  name: fortio-mcp
 spec:
   selector:
     matchLabels:
-      app: fortio
+      app: fortio-mcp
   replicas: 1
   template:
     metadata:
@@ -47,17 +47,17 @@ spec:
         sidecar.istio.io/privileged: "true"
         #sidecar.istio.io/debug: "true"
         #sidecar.istio.io/componentLogLevel: "config:trace,http2:trace,init:trace,grpc:trace,upstream:trace"
-        #sidecar.istio.io/proxyImage: gcr.io/wlhe-cr/proxyv2:latest
+        #sidecar.istio.io/proxyImage: gcr.io/wlhe-cr/proxyv2:main
 
         # Override container ports
         #traffic.sidecar.istio.io/includeInboundPorts: "*"
         sidecar.istio.io/proxyCPU: 10m
       labels:
-        app: fortio
+        app: fortio-mcp
         version: v1
         # This selects the default cluster injection - if the cluster is MCP, it is best to make it default.
-        sidecar.istio.io/inject: "true"
-        #istio.io/rev: "asm-managed"
+        #sidecar.istio.io/inject: "true"
+        istio.io/rev: "asm-managed"
     spec:
       containers:
         - name: fortio
@@ -81,9 +81,9 @@ spec:
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
 metadata:
-  name: fortio
+  name: fortio-mcp
 spec:
-  host: fortio
+  host: fortio-mcp
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
@@ -91,10 +91,10 @@ spec:
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
-  name: fortio
+  name: fortio-mcp
 spec:
   selector:
     matchLabels:
-      app: fortio
+      app: fortio-mcp
   mtls:
     mode: STRICT

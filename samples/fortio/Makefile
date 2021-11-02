@@ -22,6 +22,7 @@ REPO?=gcr.io/${PROJECT_ID}
 # Base image, including istio-proxy, envoy, starter. Built by the CI/CD on the test project.
 GOLDEN_IMAGE?=gcr.io/wlhe-cr/krun:main
 
+# A pre-build version exists in gcr.io/wlhe-cr/fortio-mesh:main
 FORTIO_IMAGE?=${REPO}/fortio-mesh:latest
 
 # Namespace to attach to.
