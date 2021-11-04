@@ -168,9 +168,6 @@ deploy/fortio-asm:
 logs:
 	(cd samples/fortio; make logs)
 
-ssh:
-	(cd samples/fortio; make ssh)
-
 # Send traffic from pod to cloudrun
 pod2cr: POD=$(shell kubectl --namespace=fortio get -l app=fortio pod -o=jsonpath='{.items[0].metadata.name}')
 pod2cr:
@@ -339,15 +336,30 @@ canary/test:
 logs/fortio-mcp:
 	(cd samples/fortio; WORKLOAD_NAME=fortio-mcp make logs)
 
-config_dump:
-	@(cd samples/fortio;  make -s config_dump_ssh)
-
 # Show MCP logs
 logs-mcp:
 	gcloud --project ${PROJECT_ID} logging read \
     	   --format "csv(textPayload,jsonPayload.message)" \
     		--freshness 1h \
      		'resource.type="istio_control_plane"'
+
+#### CAS setup
+
+cas/setup:
+	gcloud config set privateca/location ${REGION}
+	gcloud privateca pools create istio --tier TIER
+
+	# Creates projects/PROJECT_ID/locations/LOCATION/caPools/POOL_ID/certificateAuthorities/ROOT_CA_ID
+	gcloud privateca roots create ROOT_CA_ID --pool POOL_ID\
+      --subject "CN=COMMON_NAME, O=ORGANIZATION_NAME"
+
+	gcloud privateca certificates create \
+        --issuer-pool POOL_ID \
+        --subject "CN=COMMON_NAME,O=ORGANIZATION_NAME" \
+        --generate-key \
+        --key-output-file KEY_FILE_PATH \
+        --cert-output-file CERTIFICATE_FILE_PATH
+
 
 ##### GCB related targets
 

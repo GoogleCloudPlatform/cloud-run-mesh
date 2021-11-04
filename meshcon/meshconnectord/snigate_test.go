@@ -73,7 +73,7 @@ func TestSNIGate(t *testing.T) {
 			if !aliceMesh.InCluster {
 				t.Skip("Only in-cluster")
 			}
-			aliceToFortio := alice.NewClient("fortio-cr.fortio.svc.cluster.local:8080")
+			aliceToFortio := alice.NewClient()
 
 			// Create an endpoint for the gate.
 			ep := aliceToFortio.NewEndpoint("https://" + addr + ":15443/_hbone/tcp")
