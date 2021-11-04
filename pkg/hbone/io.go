@@ -371,18 +371,3 @@ func (s *BufferReader) Close() error {
 	return nil
 }
 
-type FramedWriter struct {
-	w io.Writer
-}
-
-func (fw *FramedWriter) Write(d []byte) (int, error) {
-	return 0, nil
-}
-
-type FramedReader struct {
-	r io.Reader
-}
-
-func (fw *FramedReader) Read(d []byte) (int, error) {
-	return 0, nil
-}

@@ -16,7 +16,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -77,16 +76,6 @@ func main() {
 
 	kr.StartApp()
 
-	// Start the tunnel: accepts H2 streams, decrypt the stream as mTLS, forward plain text to 15003 (envoy) which
-	// applies the metrics/enforcements and forwards to the app on 8080
-	// The certs are currently created by agent - WIP to create them from launcher, so proxyless gRPC doesn't require pilot-agent.
-	auth, err := hbone.NewAuthFromDir("")
-	if err != nil {
-		log.Fatal("Failed to find mesh certificates ", err)
-	}
-	// Support MeshCA (required for MCP). Citadel will be supported if it is used in the mesh.
-	auth.AddRoots([]byte(gcp.MeshCA))
-
 	if os.Getenv("APP_PORT") != "-" {
 		err = kr.WaitTCPReady("127.0.0.1:8080", 10*time.Second)
 		if err != nil {
@@ -94,34 +83,42 @@ func main() {
 		}
 	}
 
-	// 15009 is the reserved port for HBONE using H2C. CloudRun or other gateways using H2C will forward to this
-	// port.
-	hb := hbone.New(auth)
-	// This is a port on envoy, created by Sidecar or directly by Istiod.
-	// Needs to be plain-text HTTP
+	// Start the tunnel: accepts H2 streams, forward to 15003 (envoy) which handle mTLS
+	// and applies the metrics/enforcements and forwards to the app on 8080
+	//
+	// 15009 is the reserved port for HBONE using H2C. This is the port that CloudRun port is set, and accepts H2 plaintext
+	// connections from the CR proxy/FE (TLS is handled by the FE).
+	//
+	// This must start listenting LAST, after Envoy is 'ready' and the app itself is listening - otherwise requests will
+	// be forwarded when the app or envoy are not ready, resulting in errors during startup.
+	//
+	// The H2 requests carry tunneled mTLS data to port 15003.
+	//
+	// Envoy listens on 15003 and terminates mTLS.
+	// The port is created by the Sidecar config.
+	//
+	// The flow is:
+	// 1. K8S Service on port 8080 ( will be changed to 80 )
+	// 2. targetPort: 15443, endpoint = mesh connector
+	// 3. Mesh connector decodes the SNI header, encapsulates the mTLS stream and adds the JWT
+	// 4. Requests is sent to public CR address, port 443, as HTTP/2 over TLS, with the request
+	// body encapsulating the mTLS stream
+	// 5. CloudRun infra handles TLS and JWT authentication, forwards to port 15009
+	// 6. The agent handles HTTP/2 connection, forwards the encapsulated stream to envoy on 15003
+	// 7. Envoy treats the request as any mTLS connection - and eventually forwards to the application
+	// port 8080.
+	//
+	// We use multiple ports instead of iptables magic to allow this to work in gVisor or
+	// docker containers without NET_ADMIN/iptables ( including local testing/dev)
+	//
+	// This code path will change as Envoy support for adding JWT is added and Istio 'hbone'
+	// is fully implemented.
+	hb := hbone.New()
+
 	hb.TcpAddr = "127.0.0.1:15003" // must match sni-service-template port in Sidecar
 	_, err = hbone.ListenAndServeTCP(":15009", hb.HandleAcceptedH2C)
 	if err != nil {
 		log.Fatal("Failed to start h2c on 15009", err)
-	}
-
-	// Experimental: if hgate east-west gateway present, create a connection.
-	if os.Getenv("H2R") != "" {
-		hg := kr.MeshConnectorInternalAddr
-		if hg == "" {
-			hg = kr.MeshConnectorAddr
-		}
-		if hg == "" {
-			log.Println("hgate not found, not attaching to the cluster", err)
-		} else {
-			attachC := hb.NewClient(kr.Name + "." + kr.Namespace + ":15009")
-			attachE := attachC.NewEndpoint("")
-			attachE.SNI = fmt.Sprintf("outbound_.8080_._.%s.%s.svc.cluster.local", kr.Name, kr.Namespace)
-			go func() {
-				_, err := attachE.DialH2R(context.Background(), hg+":15441")
-				log.Println("H2R connected", hg, err)
-			}()
-		}
 	}
 
 	select {}

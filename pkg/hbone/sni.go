@@ -27,7 +27,7 @@ import (
 // Will start a SNI proxy, similar with Istio East-West or Gateway SNI router.
 // Accepted connections will decode the ServerName header, and use it to forward to either a HBONE
 // mTLS service or a H2R connection.
-//
+
 
 func (hc *Endpoint) sniProxy(ctx context.Context, stdin io.Reader, stdout io.WriteCloser) error {
 	d := net.Dialer{} // TODO: customizations
@@ -41,8 +41,7 @@ func (hc *Endpoint) sniProxy(ctx context.Context, stdin io.Reader, stdout io.Wri
 	}
 
 	// Using the low-level interface, to keep control over TLS.
-	conf := hc.hb.Auth.MeshTLSConfig.Clone()
-
+	conf := &tls.Config{}
 	conf.ServerName = hc.SNI
 
 	defer conn.Close()
@@ -64,15 +63,6 @@ func (hb *HBone) HandleSNIConn(conn net.Conn) {
 	sni, err := ParseTLS(s)
 	if err != nil {
 		log.Println("SNI invalid TLS", sni, err)
-		return
-	}
-
-	ok, err := hb.handleH2R(conn, s, sni)
-	if err != nil {
-		log.Println("SNI-H2R 500", sni, err)
-	}
-	if ok {
-		// Handled as h2r
 		return
 	}
 
