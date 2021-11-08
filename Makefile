@@ -1,7 +1,7 @@
 
 # Must define:
 # CLUSTER_NAME
-# PROJECT_ID
+# CLUSTER_PROJECT_ID
 # CLUSTER_LOCATION
 
 ROOT_DIR?=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
@@ -9,8 +9,8 @@ OUT?=${ROOT_DIR}/../out/krun
 
 -include .local.mk
 
-PROJECT_ID?=wlhe-cr
-export PROJECT_ID
+CLUSTER_PROJECT_ID?=wlhe-cr
+export CLUSTER_PROJECT_ID
 
 # Region where the cloudrun services are running
 REGION?=us-central1
@@ -28,7 +28,10 @@ export TAG
 
 # Derived values
 
-DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
+CLOUDRUN_PROJECT_ID?=${CLUSTER_PROJECT_ID}
+export CLOUDRUN_PROJECT_ID
+
+DOCKER_REPO?=gcr.io/${CLUSTER_PROJECT_ID}/krun
 export DOCKER_REPO
 
 KRUN_IMAGE?=${DOCKER_REPO}:${TAG}
@@ -38,7 +41,7 @@ HGATE_IMAGE?=${DOCKER_REPO}/gate:${TAG}
 WORKLOAD_NAME?=fortio-cr
 WORKLOAD_NAMESPACE?=fortio
 
-CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
+CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${CLOUDRUN_PROJECT_ID}.iam.gserviceaccount.com
 
 ISTIO_HUB?=gcr.io/istio-testing
 export ISTIO_HUB
@@ -47,7 +50,7 @@ ISTIO_TAG?=latest
 # Also possible to use 1.11.2
 ISTIO_PROXY_IMAGE?=${ISTIO_HUB}/proxyv2:latest
 
-FORTIO_IMAGE?=${DOCKER_REPO}/fortio-mesh:${TAG}
+FORTIO_IMAGE?=gcr.io/${CLOUDRUN_PROJECT_ID}/fortio-mesh:${TAG}
 export FORTIO_IMAGE
 export HGATE_IMAGE
 
@@ -106,7 +109,7 @@ docker/hgate:
 docker/krun:
 	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
 
-test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
+test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${CLOUDRUN_PROJECT_ID} --format="value(status.address.url)")
 test/e2e:
 	curl  -v  ${CR_URL}/fortio/fetch2/?url=http%3A%2F%2Ffortio.fortio.svc%3A8080%2Fecho
 	curl  -v  ${CR_URL}/fortio/fetch2/?url=http%3A%2F%2Ffortio.fortio-mcp.svc%3A8080%2Fecho
@@ -125,7 +128,7 @@ push/fortio:
 	(cd samples/fortio; make push)
 
 push/builder:
-	docker push gcr.io/${PROJECT_ID}/crm-builder:latest
+	docker push gcr.io/${CLUSTER_PROJECT_ID}/crm-builder:latest
 
 #### Deploy
 
@@ -135,9 +138,9 @@ deploy/fortio:
 deploy/fortio-auth:
 	gcloud alpha run deploy fortio-auth \
     		  --execution-environment=gen2 \
-    		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
+    		  --platform managed --project ${CLOUDRUN_PROJECT_ID} --region ${REGION} \
     		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
-              --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+              --vpc-connector projects/${CLOUDRUN_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
              \
              --use-http2 \
              --port 15009 \
@@ -147,9 +150,9 @@ deploy/fortio-auth:
 deploy/fortio-debug:
 	gcloud alpha run deploy fortio-debug -q \
     		  --execution-environment=gen2 \
-    		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
+    		  --platform managed --project ${CLOUDRUN_PROJECT_ID} --region ${REGION} \
     		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
-              --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+              --vpc-connector projects/${CLOUDRUN_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
              \
              --set-env-vars="^.^ENVOY_LOG_LEVEL=debug,config:warn,main:warn,upstream:warn" \
              \
@@ -182,7 +185,7 @@ pod2cr:
 docker/_run: ADC?=${HOME}/.config/gcloud/legacy_credentials/$(shell gcloud config get-value core/account)/adc.json
 docker/_run:
 	docker run -it --rm \
-		-e PROJECT_ID=${PROJECT_ID} \
+		-e PROJECT_ID=${CLOUDRUN_PROJECT_ID} \
 		-e GOOGLE_APPLICATION_CREDENTIALS=/var/run/secrets/google/google.json \
 		-v ${ADC}:/var/run/secrets/google/google.json:ro \
 		${_RUN_EXTRA} \
@@ -271,8 +274,8 @@ deploy/istiod:
         --set global.hub=${ISTIO_HUB} \
         --set global.tag=${ISTIO_TAG} \
 		--set telemetry.enabled=true \
-		--set global.sds.token.aud="${PROJECT_ID}.svc.id.goog" \
-        --set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
+		--set global.sds.token.aud="${CLUSTER_PROJECT_ID}.svc.id.goog" \
+        --set meshConfig.trustDomain="${CLUSTER_PROJECT_ID}.svc.id.goog" \
         \
 		--set meshConfig.proxyHttpPort=15007 \
         --set meshConfig.accessLogFile=/dev/stdout \
@@ -280,7 +283,7 @@ deploy/istiod:
         --set pilot.replicaCount=1 \
         --set pilot.autoscaleEnabled=false \
         \
-		--set pilot.env.TOKEN_AUDIENCES="${PROJECT_ID}.svc.id.goog\,istio-ca" \
+		--set pilot.env.TOKEN_AUDIENCES="${CLUSTER_PROJECT_ID}.svc.id.goog\,istio-ca" \
         --set pilot.env.ISTIO_MULTIROOT_MESH=true \
         --set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
 		--set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS=true
@@ -326,8 +329,8 @@ canary/deploy-auth:
 		make deploy-auth)
 
 # Example: MCP_URL=https://fortio-asm-cr-icq63pqnqq-uc.a.run.app
-canary/test: CR_MCP_URL=$(shell gcloud run services describe fortio-crmcp --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
-canary/test: CR_ASM_URL=$(shell gcloud run services describe fortio-istio --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
+canary/test: CR_MCP_URL=$(shell gcloud run services describe fortio-crmcp --region ${REGION} --project ${CLOUDRUN_PROJECT_ID} --format="value(status.address.url)")
+canary/test: CR_ASM_URL=$(shell gcloud run services describe fortio-istio --region ${REGION} --project ${CLOUDRUN_PROJECT_ID} --format="value(status.address.url)")
 canary/test:
 	curl  -v  ${CR_MCP_URL}/fortio/fetch2/?url=http%3A%2F%2Ffortio.fortio.svc%3A8080%2Fecho
 	curl  -v ${CR_ASM_URL}/fortio/fetch2/?url=http%3A%2F%2Ffortio.fortio.svc%3A8080%2Fecho
@@ -344,7 +347,7 @@ config_dump:
 
 # Show MCP logs
 logs-mcp:
-	gcloud --project ${PROJECT_ID} logging read \
+	gcloud --project ${CLUSTER_PROJECT_ID} logging read \
     	   --format "csv(textPayload,jsonPayload.message)" \
     		--freshness 1h \
      		'resource.type="istio_control_plane"'
@@ -353,7 +356,7 @@ logs-mcp:
 
 # Create the builder docker image, used in GCB
 gcb/builder:
-	gcloud builds --project ${PROJECT_ID} submit . --config=tools/builder/cloudbuild.yaml
+	gcloud builds --project ${CLUSTER_PROJECT_ID} submit . --config=tools/builder/cloudbuild.yaml
 
 # Use cloud-build-local.
 # I didn't find a way to get Kaniko to work with cloud-build-local - complaining about authorization,
@@ -370,12 +373,12 @@ gcb/local-builder:
 		--config=tools/builder/cloudbuild.yaml .
 
 build/docker-builder:
-	time docker build . -f tools/builder/Dockerfile -t gcr.io/${PROJECT_ID}/crm-builder
+	time docker build . -f tools/builder/Dockerfile -t gcr.io/${CLUSTER_PROJECT_ID}/crm-builder
 
 # Submit a build request to GCB manually.
 # Useful for checking the changes without creating a PR or branch.
 gcb/submit:
-	gcloud builds --project ${PROJECT_ID}  submit . --substitutions=_TAG=localdev
+	gcloud builds --project ${CLUSTER_PROJECT_ID}  submit . --substitutions=_TAG=localdev
 
 # Create a tagged release, promoting current main
 release/tag:

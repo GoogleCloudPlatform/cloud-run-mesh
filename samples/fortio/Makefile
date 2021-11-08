@@ -6,18 +6,20 @@
 # Defaults, using the internal test cluster - must be overriden
 
 # GKE cluster used
-PROJECT_ID?=wlhe-cr
+CLUSTER_PROJECT_ID?=wlhe-cr
 CLUSTER_LOCATION?=us-central1-c
 CLUSTER_NAME?=istio
 
 # Region where CR will be deployed
 REGION?=us-central1
 
+# Cluster where Cloud Run service will be deployed
+CLOUDRUN_PROJECT_ID?=${CLUSTER_PROJECT_ID}
 
 ################ derived values
 
 # Where to store the images
-REPO?=gcr.io/${PROJECT_ID}
+REPO?=gcr.io/${CLOUDRUN_PROJECT_ID}
 
 # Base image, including istio-proxy, envoy, starter. Built by the CI/CD on the test project.
 GOLDEN_IMAGE?=gcr.io/wlhe-cr/krun:main
@@ -28,7 +30,7 @@ FORTIO_IMAGE?=${REPO}/fortio-mesh:latest
 # Namespace to attach to.
 WORKLOAD_NAMESPACE?=fortio
 
-CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
+CLOUDRUN_SERVICE_ACCOUNT=k8s-${WORKLOAD_NAMESPACE}@${CLOUDRUN_PROJECT_ID}.iam.gserviceaccount.com
 
 export CLOUDRUN_SERVICE_ACCOUNT
 export WORKLOAD_NAMESPACE
@@ -66,9 +68,9 @@ push:
 deploy:
 	gcloud alpha run deploy ${SERVICE} \
 		  --execution-environment=gen2 \
-		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
+		  --platform managed --project ${CLOUDRUN_PROJECT_ID} --region ${REGION} \
 		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
-          --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+          --vpc-connector projects/${CLOUDRUN_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
          \
          --allow-unauthenticated \
          \
@@ -87,9 +89,9 @@ deploy:
 deploy-auth:
 	gcloud alpha run deploy ${SERVICE}-auth \
 		  --execution-environment=gen2 \
-		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
+		  --platform managed --project ${CLOUDRUN_PROJECT_ID} --region ${REGION} \
 		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
-          --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+          --vpc-connector projects/${CLOUDRUN_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
          \
          --use-http2 \
          --port 15009 \
@@ -113,33 +115,35 @@ pull:
 # Grant 'clusterViewer' role (container.clusters,resourcemanager.projects)(.get,.list)
 # TODO: document alternative (storing cluster config in mesh.env)
 setup-gsa:
-	gcloud --project ${PROJECT_ID} iam service-accounts create k8s-${WORKLOAD_NAMESPACE} \
+	gcloud --project ${CLOUDRUN_PROJECT_ID} iam service-accounts create k8s-${WORKLOAD_NAMESPACE} \
       --display-name "Service account with access to ${WORKLOAD_NAMESPACE} k8s namespace"
-	gcloud --project ${PROJECT_ID} projects add-iam-policy-binding \
-            ${PROJECT_ID} \
-            --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
+	gcloud --project ${CLUSTER_PROJECT_ID} projects add-iam-policy-binding \
+            ${CLUSTER_PROJECT_ID} \
+            --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${CLOUDRUN_PROJECT_ID}.iam.gserviceaccount.com" \
             --role="roles/container.clusterViewer"
 
     # Map the KSA to the GSA (Workload identity)
 	gcloud iam service-accounts add-iam-policy-binding \
 		--role roles/iam.workloadIdentityUser \
-		--member "serviceAccount:${PROJECT_ID}.svc.id.goog[${WORKLOAD_NAMESPACE}/default]" \
-		k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
+		--member "serviceAccount:${CLUSTER_PROJECT_ID}.svc.id.goog[${WORKLOAD_NAMESPACE}/default]" \
+		k8s-${WORKLOAD_NAMESPACE}@${CLOUDRUN_PROJECT_ID}.iam.gserviceaccount.com
 	# K8S side of the mapping.
 	kubectl annotate serviceaccount \
         --namespace ${WORKLOAD_NAMESPACE} default \
-        iam.gke.io/gcp-service-account=k8s-${WORKLOAD_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+        iam.gke.io/gcp-service-account=k8s-${WORKLOAD_NAME}@${CLOUDRUN_PROJECT_ID}.iam.gserviceaccount.com
     # At this point, Pods running as default KSA can test:
 	# curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/service-accounts/
 
-setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
+setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${CLUSTER_PROJECT_ID} --format="value(projectNumber)")
 setup-hgate:
 	gcloud run services add-iam-policy-binding ${SERVICE} \
-      --member="serviceAccount:${PROJECT_ID}.svc.id.goog[istio-system/default]" \
-      --role='roles/run.invoker'
+      --member="serviceAccount:${CLUSTER_PROJECT_ID}.svc.id.goog[istio-system/default]" \
+      --role='roles/run.invoker' \
+      --project=${CLOUDRUN_PROJECT_ID}
 	gcloud run services add-iam-policy-binding ${SERVICE} \
       --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-meshdataplane.iam.gserviceaccount.com" \
-      --role='roles/run.invoker'
+      --role='roles/run.invoker' \
+      --project=${CLOUDRUN_PROJECT_ID}
 
 setup-rbac:
 	kubectl create ns ${WORKLOAD_NAMESPACE} || true
@@ -149,7 +153,7 @@ setup-rbac:
 setup-service: setup-sni
 
 # Setup the SNI routing for  SERVICE using hgate internal load balancer.
-setup-sni: K_SERVICE=$(shell gcloud run services --project ${PROJECT_ID} --region ${REGION} describe ${SERVICE} --format="value(status.address.url)" | sed s,https://,, | sed s/.a.run.app// )
+setup-sni: K_SERVICE=$(shell gcloud run services --project ${CLOUDRUN_PROJECT_ID} --region ${REGION} describe ${SERVICE} --format="value(status.address.url)" | sed s,https://,, | sed s/.a.run.app// )
 setup-sni: SNI_GATE_IP=$(shell kubectl -n istio-system get service internal-hgate -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 setup-sni:
 	echo Setting up SNI route ${K_SERVICE} ${SNI_GATE_IP}
@@ -157,20 +161,20 @@ setup-sni:
 
 cleanup:
 	kubectl delete ns ${WORKLOAD_NAMESPACE} || true
-	gcloud --project ${PROJECT_ID} projects remove-iam-policy-binding \
-            ${PROJECT_ID} \
-            --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
+	gcloud --project ${CLUSTER_PROJECT_ID} projects remove-iam-policy-binding \
+            ${CLUSTER_PROJECT_ID} \
+            --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${CLOUDRUN_PROJECT_ID}.iam.gserviceaccount.com" \
             --role="roles/container.clusterViewer" || true
-	gcloud --project ${PROJECT_ID} iam service-accounts -q delete k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com || true
-	gcloud alpha run -q services delete ${SERVICE}
+	gcloud --project ${CLOUDRUN_PROJECT_ID} iam service-accounts -q delete k8s-${WORKLOAD_NAMESPACE}@${CLOUDRUN_PROJECT_ID}.iam.gserviceaccount.com || true
+	gcloud alpha run -q services delete ${SERVICE} --project ${CLOUDRUN_PROJECT_ID}
 
 logs-project:
-	gcloud logging read 'resource.type = "project" OR resource.type = "cloud_run_revision"'
+	gcloud logging read 'resource.type = "project" OR resource.type = "cloud_run_revision"' --project ${CLOUDRUN_PROJECT_ID} 
 
 # textPayload:SyncAddress --limit=50 --format=json
 logs:
 	#gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.location = "us-central1" AND resource.labels.service_name="fortio${SUFFIX}"'
-	gcloud --project ${PROJECT_ID} logging read \
+	gcloud --project ${CLOUDRUN_PROJECT_ID} logging read \
 		--format "csv(textPayload)" \
 		--freshness 1h \
  		'resource.type="cloud_run_revision" AND resource.labels.location = "us-central1" AND resource.labels.service_name="${SERVICE}"'
@@ -180,7 +184,7 @@ setupcon-sharedvpc:
 	gcloud compute networks vpc-access connectors create serverlesscon \
     --region ${REGION} \
     --subnet default \
-    --subnet-project ${PROJECT_ID} \
+    --subnet-project ${CLOUDRUN_PROJECT_ID} \
     --min-instances 2 \
     --max-instances 10 \
 
