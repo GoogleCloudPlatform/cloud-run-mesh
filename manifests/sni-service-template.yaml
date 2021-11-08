@@ -93,7 +93,7 @@ metadata:
   name: ${K_SERVICE}
   namespace: ${WORKLOAD_NAMESPACE}
 spec:
-  host: ${K_SERVICE}.fortio.svc.cluster.local
+  host: ${K_SERVICE}.${WORKLOAD_NAMESPACE}.svc.cluster.local
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
@@ -137,7 +137,7 @@ metadata:
 #    topology.istio.io/network: hbone
 spec:
   hosts:
-    - ${K_SERVICE}.fortio.svc.cluster.local
+    - ${K_SERVICE}.${WORKLOAD_NAMESPACE}.svc.cluster.local
   location: MESH_INTERNAL
   ports:
     - number: 8080
