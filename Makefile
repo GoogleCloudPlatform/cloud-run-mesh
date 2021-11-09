@@ -12,6 +12,10 @@ OUT?=${ROOT_DIR}/../out/krun
 PROJECT_ID?=wlhe-cr
 export PROJECT_ID
 
+# If the project is part of a multi-project, this is the hub id.
+FLEET_ID?=${PROJECT_ID}
+export FLEET_ID
+
 # Region where the cloudrun services are running
 REGION?=us-central1
 export REGION
@@ -27,6 +31,8 @@ TAG ?= latest
 export TAG
 
 # Derived values
+
+REPO?=gcr.io/${PROJECT_ID}
 
 DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
 export DOCKER_REPO
@@ -47,7 +53,7 @@ ISTIO_TAG?=latest
 # Also possible to use 1.11.2
 ISTIO_PROXY_IMAGE?=${ISTIO_HUB}/proxyv2:latest
 
-FORTIO_IMAGE?=${DOCKER_REPO}/fortio-mesh:${TAG}
+FORTIO_IMAGE?=${REPO}/fortio-mesh:${TAG}
 export FORTIO_IMAGE
 export HGATE_IMAGE
 
@@ -247,7 +253,7 @@ helm/addcharts:
 
 deploy/istio-base:
 	kubectl create namespace istio-system | true
-	helm install istio-base istio/base -n istio-system ${CHART_VERSION} | true
+	helm upgrade --install istio-base istio/base -n istio-system ${CHART_VERSION} | true
 
 # Default install of istiod, with a number of options set for interop with ASM and MCP.
 #
@@ -277,10 +283,13 @@ deploy/istiod:
         --set pilot.replicaCount=1 \
         --set pilot.autoscaleEnabled=false \
         \
-		--set pilot.env.TOKEN_AUDIENCES="${PROJECT_ID}.svc.id.goog\,istio-ca" \
+		--set pilot.env.TOKEN_AUDIENCES="${CONFIG_PROJECT_ID}.svc.id.goog\,istio-ca" \
         --set pilot.env.ISTIO_MULTIROOT_MESH=true \
         --set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
 		--set pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS=true
+
+default-ns-istio-system:
+	 kubectl config set-context --current --namespace=istio-system
 
 # Special config for GKE autopilot - disable mutating-webhook related functions
 # For extra logs, add --set global.logging.level=all:debug
@@ -316,6 +325,46 @@ canary/deploy-asm:
 		FORTIO_DEPLOY_EXTRA="--set-env-vars MESH_TENANT=-" \
 		make deploy setup-sni)
 
+CONFIG_PROJECT_ID=mcp-prod
+CONFIG_CLUSTER_NAME=mesh-config-1
+
+
+# Init the second project. We'll use 'test' namespace
+# Once this is done, the workload project k8s-NAMESPACE GSA will be able to use the mesh
+# in the config cluster.
+mp/workload-project-namespace-init:
+	# Init the GSA and bindings for CR in MP_PROJECT_ID to use the config clusters.
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAMESPACE=test \
+		CONFIG_PROJECT_ID=${CONFIG_PROJECT_ID} \
+		make setup-gsa) || true
+
+	# Allow the GSA in the workload project access to the namespace in config cluster.
+	# The KSA is in the config cluster - and equivalent with the GSA in the config project.
+	# The GSA in the workload project is only allowed to act as the KSA/GSA in config project, no additional permissions
+	# on the mesh or K8S. It can have additional permissions used by the app, when using metadata server tokens.
+	# Mesh interactions are using the KSA
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAMESPACE=test \
+		CONFIG_PROJECT_ID=${CONFIG_PROJECT_ID}  \
+		CLUSTER_NAME=${CONFIG_CLUSTER_NAME} CLUSTER_LOCATION=${CLUSTER_LOCATION} \
+		make setup-rbac)
+
+# TODO: serverless connector access or multi-network ?
+mp/vpc:
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAMESPACE=test \
+		CONFIG_PROJECT_ID=${CONFIG_PROJECT_ID}  \
+		CLUSTER_NAME=${CONFIG_CLUSTER_NAME} \
+		make vpc-access)
+
+
+# Multiproject test - deploy the workload in a second project (costin-asm1 for the CI)
+mp/deploy:
+	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAMESPACE=test \
+		CONFIG_PROJECT_ID=${CONFIG_PROJECT_ID}  \
+		CLUSTER_NAME=${CONFIG_CLUSTER_NAME} \
+		FORTIO_DEPLOY_EXTRA="" \
+		make deploy-auth)
+
+
 # Alternative, using real cert:	XDS_ADDR=istiod.wlhe.i.webinf.info:443" \
 
 canary/deploy-auth:
@@ -345,21 +394,84 @@ logs-mcp:
 
 #### CAS setup
 
+# Setup CAS and create the root CA
 cas/setup:
-	gcloud config set privateca/location ${REGION}
-	gcloud privateca pools create istio --tier TIER
+	#gcloud config set privateca/location ${REGION}
+	gcloud privateca pools create mesh --tier devops --location ${REGION}
 
 	# Creates projects/PROJECT_ID/locations/LOCATION/caPools/POOL_ID/certificateAuthorities/ROOT_CA_ID
-	gcloud privateca roots create ROOT_CA_ID --pool POOL_ID\
-      --subject "CN=COMMON_NAME, O=ORGANIZATION_NAME"
+	# May want to use O=MESH_ID, for multi-project.
+	# Google managed
+	gcloud privateca roots create mesh-selfsigned --pool mesh --location ${REGION} \
+		--auto-enable \
+        --subject "CN=${PROJECT_ID}, O=${FLEET_ID}"
 
+	gcloud privateca pools add-iam-policy-binding mesh \
+        --project "${PROJECT}" \
+        --location "${REGION}" \
+        --member "group:${FLEET_ID}.svc.id.goog:/allAuthenticatedUsers/" \
+        --role "roles/privateca.workloadCertificateRequester"
+
+
+
+#gcloud privateca pools add-iam-policy-binding istio \
+#   --role=roles/privateca.workloadCertificateRequester
+# --member="serviceAccount:service-601426346923@gcp-sa-meshdataplane.iam.gserviceaccount.com"
+#--project wlhe-cr --location=us-central1
+
+
+
+# Requires the pyca library. Alternative: certtool
+cas/cert:
 	gcloud privateca certificates create \
-        --issuer-pool POOL_ID \
-        --subject "CN=COMMON_NAME,O=ORGANIZATION_NAME" \
+        --issuer-pool mesh --issuer-location ${REGION} \
+        --subject "CN=${PROJECTI_ID},O=${PROJECT_ID}" \
         --generate-key \
-        --key-output-file KEY_FILE_PATH \
-        --cert-output-file CERTIFICATE_FILE_PATH
+        --key-output-file key.pem \
+        --cert-output-file cert.pem
 
+# WIP - needs to wait, test - this seems to be the sequence needed to import
+cas/import:
+	gcloud kms keyrings create istio \
+    	--location ${REGION}
+	gcloud kms keys list --keyring istio --location ${REGION}
+
+	gcloud kms keys create istio-citadel \
+      --location ${REGION} \
+      --keyring istio \
+      --purpose purpose \
+      --skip-initial-version-creation \
+      --import-only
+
+	gcloud kms import-jobs create import-job \
+      --location ${REGION} \
+      --keyring istio \
+      --import-method rsa-oaep-3072-sha1-aes-256 \
+      --protection-level software # or 'hsm'
+
+    # Must be ACTIVE
+	gcloud kms import-jobs describe import-job \
+       --location ${REGION} \
+       --keyring istio \
+       --format="value(state)"
+
+    # PEM, PKCS#8
+	openssl pkcs8 -topk8 -nocrypt -inform PEM -outform DER \
+        -in ${OUT}/key.pem \
+        -out ${OUT}/key.der
+
+	gcloud kms keys versions import \
+      --import-job $${import-job} \
+      --location ${REGION} \
+      --keyring istio \
+      --key istio-citadel \
+      --algorithm algorithm-name \
+      --target-key-file ${OUT}/key.der
+
+	# projects/example-project-98765/locations/us-central1/keyRings/example-ring/cryptoKeys/example-key
+	gcloud privateca roots create istio-citdel --pool istio \
+        --subject "CN=Common Name, O=Organization Name" \
+        --kms-key-version kms-resource-name
 
 ##### GCB related targets
 
