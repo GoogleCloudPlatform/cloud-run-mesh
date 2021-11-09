@@ -28,7 +28,7 @@ import (
 var initDebug func(run *mesh.KRun)
 
 func main() {
-	kr := mesh.New("")
+	kr := mesh.New()
 
 	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
 	kr.VendorInit = gcp.InitGCP
@@ -39,7 +39,7 @@ func main() {
 		log.Fatal("Failed to connect to mesh ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}
 
-	log.Println("K8S Client initialized", "cluster", kr.ProjectId + "/" +  kr.ClusterLocation + "/" + kr.ClusterName,
+	log.Println("K8S Client initialized", "cluster", kr.ClusterAddress,
 		"project_number", kr.ProjectNumber, "instanceID", kr.InstanceID,
 		"ksa", kr.KSA, "ns", kr.Namespace,
 		"name", kr.Name,
