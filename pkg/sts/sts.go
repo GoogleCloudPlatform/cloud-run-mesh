@@ -244,8 +244,7 @@ type federatedTokenResponse struct {
 func (s *STS) constructAudience(provider, trustDomain string) string {
 
 	if provider == "" {
-		provider = fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
-			s.kr.ProjectId, s.kr.ClusterLocation, s.kr.ClusterName)
+		provider = s.kr.ClusterAddress
 	}
 	return fmt.Sprintf("identitynamespace:%s:%s", trustDomain, provider)
 }

@@ -31,7 +31,7 @@ import (
 // TestSNIGate is e2e, requires a k8s connection (kube config is fine)
 // Also requires certificates to be created - will not start agent or envoy
 func TestSNIGate(t *testing.T) {
-	gateK8S := mesh.New("")
+	gateK8S := mesh.New()
 	gateK8S.XDSAddr = "-" // prevent pilot-agent from starting
 	gateK8S.BaseDir = "../../"
 
@@ -44,7 +44,7 @@ func TestSNIGate(t *testing.T) {
 	t.Log("Gate listening on ", gate.SNIListener.Addr())
 
 	t.Run("client", func(t *testing.T) {
-		aliceMesh := mesh.New("")
+		aliceMesh := mesh.New()
 		aliceMesh.XDSAddr = "-" // prevent pilot-agent from starting
 		aliceMesh.BaseDir = "../../"
 

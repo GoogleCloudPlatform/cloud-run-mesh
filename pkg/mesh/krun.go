@@ -17,6 +17,7 @@ package mesh
 import (
 	"context"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -95,9 +96,20 @@ type KRun struct {
 	// the config.
 	Client *kubernetes.Clientset
 
+	// ProjectId is the name of the project where config cluster is running
+	// The workload may be in a different project.
 	ProjectId       string
+
+	// ProjectNumber is used for GCP federated token exchange.
+	// It is populated from the mesh-env PROJECT_NUMBER setting to construct the federated P4SA
+	//    "service-" + s.kr.ProjectNumber + "@gcp-sa-meshdataplane.iam.gserviceaccount.com"
+	// This is used for MeshCA and Stackdriver access.
 	ProjectNumber   string
+
+	// Deprecated - ClusterAddress used instead.
 	ClusterName     string
+
+	// TODO: replace with Workloadlocation. Config cluster location not used.
 	ClusterLocation string
 
 	agentCmd    *exec.Cmd
@@ -120,19 +132,43 @@ type KRun struct {
 	CitadelRoot string
 
 	// MeshAddr is the location of the mesh environment file.
-	MeshAddr   string
+	// This will be loaded at startup (TODO: and periodically or on demand for dynamic changes - XDS may also
+	// push configs)
+	//
+	//
+	//
+	// Supported formats:
+	// - https://.... - regular URL, using system certificates. Will return the mesh env directly.
+	// - file://... - load from file
+	// - gke://CONFIG_PROJECT_ID[/CLUSTER_LOCATION/CLUSTER_NAME/WORKLOAD_NAMESPACE] - GKE Container API.
+	MeshAddr   *url.URL
+
+	// Config cluster address - https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s
+	// Used in the identitynamespace config for STS exchange.
+	ClusterAddress string
+
+
 	InstanceID string
 }
 
-func New(addr string) *KRun {
+// New creates an uninitialized mesh launcher.
+func New() *KRun {
 	kr := &KRun{
-		MeshAddr:    addr,
 		StartTime:   time.Now(),
 		Aud2File:    map[string]string{},
 		Labels:      map[string]string{},
 		ProxyConfig: &ProxyConfig{},
 	}
 	return kr
+}
+
+// Extract Region from ClusterLocation
+func (kr *KRun) Region() string {
+	p := strings.Split(kr.ClusterLocation, "-")
+	if len(p) < 3 {
+		return kr.ClusterLocation
+	}
+	return strings.Join(p[0:2], "-")
 }
 
 // initFromEnv will use the env variables, metadata server and cluster configmaps
@@ -197,7 +233,7 @@ func (kr *KRun) initFromEnv() {
 	if kr.TrustDomain == "" {
 		kr.TrustDomain = os.Getenv("TRUST_DOMAIN")
 	}
-	if kr.TrustDomain == "" {
+	if kr.TrustDomain == "" && kr.ProjectId != "" {
 		kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
 	}
 	// This can be used to provide a k8s-like environment, for apps that need it.
@@ -228,7 +264,7 @@ func (kr *KRun) initFromEnv() {
 	// Advanced options
 
 	// example dns:debug
-	kr.AgentDebug = cfg("XDS_AGENT_DEBUG", "")
+	kr.AgentDebug = kr.Config("XDS_AGENT_DEBUG", "")
 }
 
 // RefreshAndSaveTokens is run periodically to create token, secrets, config map files.
@@ -245,12 +281,6 @@ func (kr *KRun) RefreshAndSaveTokens() {
 	time.AfterFunc(30*time.Minute, kr.RefreshAndSaveTokens)
 }
 
-// SaveFile is a helper to save a file used by agent or app.
-// Depending on root, will use / or ./. Other customizations ( ~/.cache, etc)
-// can be added here.
-func (kr *KRun) SaveFile(relPath string, data []byte, mode int) {
-
-}
 
 // FindXDSAddr will determine which discovery address to use.
 //
@@ -327,7 +357,10 @@ func (kr *KRun) loadMeshEnv(ctx context.Context) error {
 		}
 		return err
 	}
-	d := s.Data
+	return kr.initFromMap(s.Data)
+}
+
+func (kr *KRun) initFromMap(d map[string]string) error {
 	// See connector for supported values
 	updateFromMap(d, "PROJECT_NUMBER", &kr.ProjectNumber)
 	updateFromMap(d, "MESH_TENANT", &kr.MeshTenant)
@@ -338,10 +371,6 @@ func (kr *KRun) loadMeshEnv(ctx context.Context) error {
 	updateFromMap(d, "MCON_ADDR", &kr.MeshConnectorAddr)
 	updateFromMap(d, "IMCON_ADDR", &kr.MeshConnectorInternalAddr)
 	updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
-
-	// Old style:
-	updateFromMap(d, "CLOUDRUN_ADDR", &kr.MeshTenant)
-	updateFromMap(d, "ISTIOD_ROOT", &kr.CitadelRoot)
 
 	if kr.CitadelRoot != "" {
 		kr.CARoots = append(kr.CARoots, kr.CitadelRoot)
@@ -363,7 +392,7 @@ func updateFromMap(d map[string]string, key string, dest *string) {
 	}
 }
 
-func cfg(name, def string) string {
+func (kr *KRun) Config(name, def string) string {
 	v := os.Getenv(name)
 	if name == "" {
 		return def
