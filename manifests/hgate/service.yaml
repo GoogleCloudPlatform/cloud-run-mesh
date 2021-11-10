@@ -66,10 +66,7 @@ spec:
       name: tcp-istiod
   selector:
     app: istiod
-    # Use this if rev is set - may be any revision
-    #istio.io/rev: default
-    # This is the default for revision-less install
-    istio: pilot
+    istio.io/rev: default
 
 ---
 # https://cloud.google.com/kubernetes-engine/docs/how-to/internal-load-balancing

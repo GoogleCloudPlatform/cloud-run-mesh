@@ -251,7 +251,7 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	}
 
 	kr.ProjectId = configProjectID
-	
+
 	kr.TrustDomain = configProjectID + ".svc.id.goog"
 	kc = cl.KubeConfig
 	if kr.ClusterName == "" {

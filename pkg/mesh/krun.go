@@ -180,6 +180,8 @@ func (kr *KRun) initFromEnv() {
 		// Same environment used for VMs
 		kr.KSA = os.Getenv("WORKLOAD_SERVICE_ACCOUNT")
 	}
+	// TODO: on GKE detect KSA from the JWT or workload cert.
+	// Same for trust domain if workload certs are enabled
 	if kr.KSA == "" {
 		kr.KSA = "default"
 	}
@@ -188,6 +190,8 @@ func (kr *KRun) initFromEnv() {
 		// Same environment used for VMs
 		kr.Namespace = os.Getenv("WORKLOAD_NAMESPACE")
 	}
+	// TODO: detect the namespace from the JWT token if on GKE
+
 	if kr.Name == "" {
 		kr.Name = os.Getenv("WORKLOAD_NAME")
 	}

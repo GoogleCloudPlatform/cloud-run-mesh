@@ -139,6 +139,10 @@ setup-gsa:
             --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
             --role="roles/serviceusage.serviceUsageConsumer"
 
+	# Also allow the use of TD
+	gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+	  --member serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com \
+	   --role roles/trafficdirector.client
 
 # Setup workload identity - used to make the KSA and GSA 'equivlent'.
 # This allows metadata server to impersonate the GSA.
@@ -198,20 +202,21 @@ logs:
 		--freshness 1h \
  		'resource.type="cloud_run_revision" AND resource.labels.location = "us-central1" AND resource.labels.service_name="${SERVICE}"'
 
+# In order to use shared VPC, cloudrun must have the permission.
+# Once per project.
 vpc-access: PROJECT_NUMBER=$(shell gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
 vpc-access:
 	# Requires compute.organizations.enableXpnHost
 #	gcloud projects add-iam-policy-binding ${CONFIG_PROJECT_ID} \
 #		--role roles/vpcaccess.serviceAgent \
 #		--member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-vpcaccess.iam.gserviceaccount.com"
-	gcloud projects add-iam-policy-binding ${CONFIG_PROJECT_ID} \
-		--role roles/vpcaccess.user \
-		--member "serviceAccount:service-${PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com" \
-
-shared-vpc:
 	gcloud compute shared-vpc enable ${CONFIG_PROJECT_ID}
 	gcloud compute shared-vpc associated-projects add ${PROJECT_ID} \
     	--host-project ${CONFIG_PROJECT_ID}
+
+	gcloud projects add-iam-policy-binding ${CONFIG_PROJECT_ID} \
+		--role roles/vpcaccess.user \
+		--member "serviceAccount:service-${PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com" \
 
 
 setupcon-sharedvpc:
@@ -221,8 +226,4 @@ setupcon-sharedvpc:
     --range 10.8.0.0/28 \
     --min-instances 2 \
     --max-instances 10
-
-    # Instead of range:
-    #    --subnet default \
-    #    --subnet-project ${CONFIG_PROJECT_ID} \
 

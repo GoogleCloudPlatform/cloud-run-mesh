@@ -1,0 +1,49 @@
+# Based on example in https://cloud.google.com/traffic-director/docs/security-proxyless-setup?hl=en
+
+apiVersion: security.cloud.google.com/v1
+kind: WorkloadCertificateConfig
+metadata:
+  name: default
+spec:
+  # Required. The CA service that issues your certificates.
+  certificateAuthorityConfig:
+    certificateAuthorityServiceConfig:
+      endpointURI: //privateca.googleapis.com/projects/${CONFIG_PROJECT_ID}/locations/${REGION}/caPools/mesh
+
+  # Required. The key algorithm to use. Choice of RSA or ECDSA.
+  #
+  # To maximize compatibility with various TLS stacks, your workloads
+  # should use keys of the same family as your root and subordinate CAs.
+  #
+  # To use RSA, specify configuration such as:
+  #   keyAlgorithm:
+  #     rsa:
+  #       modulusSize: 4096
+  #
+  # Currently, the only supported ECDSA curves are "P256" and "P384", and the only
+  # supported RSA modulus sizes are 2048, 3072 and 4096.
+  keyAlgorithm:
+    rsa:
+      modulusSize: 4096
+
+  # Optional. Validity duration of issued certificates, in seconds.
+  #
+  # Defaults to 86400 (1 day) if not specified.
+  validityDurationSeconds: 86400
+
+  # Optional. Try to start rotating the certificate once this
+  # percentage of validityDurationSeconds is remaining.
+  #
+  # Defaults to 50 if not specified.
+  rotationWindowPercentage: 50
+---
+apiVersion: security.cloud.google.com/v1
+kind: TrustConfig
+metadata:
+  name: default
+spec:
+  trustStores:
+    - trustDomain: ${CONFIG_PROJECT_ID}.svc.id.goog
+      # All active CAs in the pool should show up.
+      trustAnchors:
+        - certificateAuthorityServiceURI: //privateca.googleapis.com/projects/${CONFIG_PROJECT_ID}/locations/${REGION}/caPools/mesh

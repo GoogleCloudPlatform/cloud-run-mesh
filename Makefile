@@ -12,9 +12,19 @@ OUT?=${ROOT_DIR}/../out/krun
 PROJECT_ID?=wlhe-cr
 export PROJECT_ID
 
+
+CLUSTER_NAME?=istio
+export CLUSTER_NAME
+
+# also mcp-prod - setup for multi-project
+CONFIG_PROJECT_ID?=${PROJECT_ID}
+# mesh-config-1
+CONFIG_CLUSTER_NAME?=${CLUSTER_NAME}
+
 # If the project is part of a multi-project, this is the hub id.
-FLEET_ID?=${PROJECT_ID}
+FLEET_ID?=${CONFIG_PROJECT_ID}
 export FLEET_ID
+
 
 # Region where the cloudrun services are running
 REGION?=us-central1
@@ -23,9 +33,6 @@ export REGION
 CLUSTER_LOCATION?=us-central1-c
 export CLUSTER_LOCATION
 
-
-CLUSTER_NAME?=istio
-export CLUSTER_NAME
 
 TAG ?= latest
 export TAG
@@ -274,8 +281,8 @@ deploy/istiod:
         --set global.hub=${ISTIO_HUB} \
         --set global.tag=${ISTIO_TAG} \
 		--set telemetry.enabled=true \
-		--set global.sds.token.aud="${PROJECT_ID}.svc.id.goog" \
-        --set meshConfig.trustDomain="${PROJECT_ID}.svc.id.goog" \
+		--set global.sds.token.aud="${CONFIG_PROJECT_ID}.svc.id.goog" \
+        --set meshConfig.trustDomain="${CONFIG_PROJECT_ID}.svc.id.goog" \
         \
 		--set meshConfig.proxyHttpPort=15007 \
         --set meshConfig.accessLogFile=/dev/stdout \
@@ -324,10 +331,6 @@ canary/deploy-asm:
 	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-istio \
 		FORTIO_DEPLOY_EXTRA="--set-env-vars MESH_TENANT=-" \
 		make deploy setup-sni)
-
-CONFIG_PROJECT_ID=mcp-prod
-CONFIG_CLUSTER_NAME=mesh-config-1
-
 
 # Init the second project. We'll use 'test' namespace
 # Once this is done, the workload project k8s-NAMESPACE GSA will be able to use the mesh
@@ -396,23 +399,32 @@ logs-mcp:
 
 # Setup CAS and create the root CA
 cas/setup:
-	#gcloud config set privateca/location ${REGION}
-	gcloud privateca pools create mesh --tier devops --location ${REGION}
+	gcloud privateca pools create --project "${CONFIG_PROJECT_ID}" mesh --tier devops --location ${REGION}
 
-	# Creates projects/PROJECT_ID/locations/LOCATION/caPools/POOL_ID/certificateAuthorities/ROOT_CA_ID
+	# Creates projects/PROJECT_ID/locations/LOCATION/caPools/mesh/certificateAuthorities/mesh-selfsigned
 	# May want to use O=MESH_ID, for multi-project.
 	# Google managed
-	gcloud privateca roots create mesh-selfsigned --pool mesh --location ${REGION} \
+	gcloud privateca roots create --project "${CONFIG_PROJECT_ID}" mesh-selfsigned --pool mesh --location ${REGION} \
 		--auto-enable \
         --subject "CN=${PROJECT_ID}, O=${FLEET_ID}"
 
-	gcloud privateca pools add-iam-policy-binding mesh \
-        --project "${PROJECT}" \
+	gcloud privateca pools --project "${CONFIG_PROJECT_ID}" add-iam-policy-binding mesh \
+        --project "${CONFIG_PROJECT_ID}" \
         --location "${REGION}" \
         --member "group:${FLEET_ID}.svc.id.goog:/allAuthenticatedUsers/" \
         --role "roles/privateca.workloadCertificateRequester"
 
+# Setup the config cluster to use workload certificates.
+cas/setup-cluster: CONFIG_PROJNUM=$(shell gcloud projects describe ${CONFIG_PROJECT_ID} --format="value(projectNumber)")
+cas/setup-cluster:
+	gcloud container clusters update ${CLUSTER_NAME} --project "${CONFIG_PROJECT_ID}" --region ${CLUSTER_LOCATION} --enable-mesh-certificates
+	gcloud privateca pools add-iam-policy-binding --project "${CONFIG_PROJECT_ID}" mesh \
+	  --location ${REGION} \
+	  --role roles/privateca.certificateManager \
+	  --member="serviceAccount:service-${CONFIG_PROJNUM}@container-engine-robot.iam.gserviceaccount.com"
 
+cas/setup-k8s:
+	cat manifests/cas-template.yaml | envsubst | kubectl apply -f -
 
 #gcloud privateca pools add-iam-policy-binding istio \
 #   --role=roles/privateca.workloadCertificateRequester
@@ -472,6 +484,17 @@ cas/import:
 	gcloud privateca roots create istio-citdel --pool istio \
         --subject "CN=Common Name, O=Organization Name" \
         --kms-key-version kms-resource-name
+
+gcp/services:
+	gcloud services enable --project ${CONFIG_PROJECT_ID} \
+        container.googleapis.com \
+        cloudresourcemanager.googleapis.com \
+        compute.googleapis.com \
+        trafficdirector.googleapis.com \
+        networkservices.googleapis.com \
+        networksecurity.googleapis.com \
+        privateca.googleapis.com \
+        gkehub.googleapis.com
 
 ##### GCB related targets
 
