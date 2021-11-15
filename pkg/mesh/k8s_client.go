@@ -133,7 +133,7 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 	if mesh != "" {
 		meshURL, err := url.Parse(mesh)
 		if err != nil {
-			return fmt.Errorf("Invalid meshURL", mesh, err)
+			return fmt.Errorf("Invalid meshURL %v %v", mesh, err)
 		}
 		kr.MeshAddr = meshURL
 	}
@@ -156,6 +156,10 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 		}
 	}
 
+	if kr.ClusterAddress == "" {
+		kr.ClusterAddress = fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
+			kr.ProjectId, kr.ClusterLocation, kr.ClusterName)
+	}
 	return err
 }
 

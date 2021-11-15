@@ -260,8 +260,6 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	if kr.ClusterLocation == "" {
 		kr.ClusterLocation = cl.ClusterLocation
 	}
-	kr.ClusterAddress =  fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
-		configProjectID, kr.ClusterLocation, kr.ClusterName)
 
 	GCPInitTime = time.Since(t0)
 

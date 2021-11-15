@@ -147,7 +147,6 @@ type KRun struct {
 	// Used in the identitynamespace config for STS exchange.
 	ClusterAddress string
 
-
 	InstanceID string
 }
 

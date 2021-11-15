@@ -156,10 +156,13 @@ func (s *STS) TokenFederated(ctx context.Context, k8sSAjwt string) (string, erro
 	req = req.WithContext(ctx)
 
 	res, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("token exchange failed: %v, (aud: %s, STS endpoint: %s)", err, stsAud, SecureTokenEndpoint)
+	}
 
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return "", fmt.Errorf("token exchange failed: %v, (aud: %s, STS endpoint: %s)", err, stsAud, SecureTokenEndpoint)
+		return "", fmt.Errorf("token exchange read failed: %v, (aud: %s, STS endpoint: %s)", err, stsAud, SecureTokenEndpoint)
 	}
 	respData := &federatedTokenResponse{}
 	if err := json.Unmarshal(body, respData); err != nil {
@@ -242,7 +245,6 @@ type federatedTokenResponse struct {
 // or gcloud URL
 // Required when exchanging an external credential for a Google access token.
 func (s *STS) constructAudience(provider, trustDomain string) string {
-
 	if provider == "" {
 		provider = s.kr.ClusterAddress
 	}
