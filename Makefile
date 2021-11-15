@@ -397,7 +397,7 @@ logs/fortio-mcp:
 
 # Show MCP logs
 logs-mcp:
-	gcloud --project ${PROJECT_ID} logging read \
+	gcloud --project ${CONFIG_PROJECT_ID} logging read \
     	   --format "csv(textPayload,jsonPayload.message)" \
     		--freshness 1h \
      		'resource.type="istio_control_plane"'
@@ -444,7 +444,7 @@ cas/setup-k8s:
 cas/cert:
 	gcloud privateca certificates create \
         --issuer-pool mesh --issuer-location ${REGION} \
-        --subject "CN=${PROJECTI_ID},O=${PROJECT_ID}" \
+        --subject "CN=${PROJECT_ID},O=${PROJECT_ID}" \
         --generate-key \
         --key-output-file key.pem \
         --cert-output-file cert.pem

@@ -287,7 +287,7 @@ func initGCP(ctx context.Context, kc *k8s.K8S) error {
 	} else {
 		// Explicit override - user specified the full path to the cluster.
 		// ~400 ms
-		cl, err = GKECluster(ctx, configProjectID, kr.ClusterLocation, kr.ClusterName)
+		cl, err = GKECluster(ctx, kr, configProjectID, configLocation, configClusterName)
 		if err != nil {
 			return err
 		}
@@ -307,8 +307,6 @@ func initGCP(ctx context.Context, kc *k8s.K8S) error {
 	if kr.ClusterLocation == "" {
 		kr.ClusterLocation = cl.ClusterLocation
 	}
-	kr.ClusterAddress =  fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
-		configProjectID, kr.ClusterLocation, kr.ClusterName)
 
 	GCPInitTime = time.Since(t0)
 
@@ -386,8 +384,12 @@ func findCluster(kr *k8s.K8S, cll []*Cluster, myRegion string, cl *Cluster) *Clu
 	return cl
 }
 
-func GKECluster(ctx context.Context, p, l, clusterName string) (*Cluster, error) {
-	cl, err := container.NewClusterManagerClient(ctx, option.WithQuotaProject(p))
+func GKECluster(ctx context.Context, kr *mesh.KRun, p, l, clusterName string) (*Cluster, error) {
+	opts := []option.ClientOption{}
+	if p != kr.ProjectId {
+		opts = append(opts, option.WithQuotaProject(p))
+	}
+	cl, err := container.NewClusterManagerClient(ctx, opts...)
 	if err != nil {
 		log.Println("Failed NewClusterManagerClient", p, l, clusterName, err)
 		return nil, err
@@ -437,7 +439,15 @@ func AllClusters(ctx context.Context, kr *mesh.KRun, configProjectId string,
 	label string, meshID string) ([]*Cluster, error) {
 	clustersL := []*Cluster{}
 
-	cl, err := container.NewClusterManagerClient(ctx,option.WithQuotaProject(configProjectId))
+	if configProjectId == "" {
+		configProjectId = kr.ProjectId
+	}
+
+	opts := []option.ClientOption{}
+	if configProjectId != kr.ProjectId {
+		opts = append(opts, option.WithQuotaProject(configProjectId))
+	}
+	cl, err := container.NewClusterManagerClient(ctx,opts...)
 	if err != nil {
 		return nil, err
 	}
