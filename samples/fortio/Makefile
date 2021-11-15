@@ -150,7 +150,7 @@ setup-wi:
     # Map the KSA to the GSA (Workload identity)
 	gcloud iam service-accounts add-iam-policy-binding \
 		--role roles/iam.workloadIdentityUser \
-		--member "serviceAccount:${PROJECT_ID}.svc.id.goog[${WORKLOAD_NAMESPACE}/default]" \
+		--member "serviceAccount:${CONFIG_PROJECT_ID}.svc.id.goog[${WORKLOAD_NAMESPACE}/default]" \
 		k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
 	# K8S side of the mapping.
 	kubectl annotate serviceaccount \
@@ -159,10 +159,10 @@ setup-wi:
     # At this point, Pods running as default KSA can test:
 	# curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/service-accounts/
 
-setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
+setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${CONFIG_PROJECT_ID} --format="value(projectNumber)")
 setup-hgate:
 	gcloud run services add-iam-policy-binding ${SERVICE} \
-      --member="serviceAccount:${PROJECT_ID}.svc.id.goog[istio-system/default]" \
+      --member="serviceAccount:${CONFIG_PROJECT_ID}.svc.id.goog[istio-system/default]" \
       --role='roles/run.invoker'
 	gcloud run services add-iam-policy-binding ${SERVICE} \
       --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-meshdataplane.iam.gserviceaccount.com" \
@@ -184,8 +184,8 @@ setup-sni:
 
 cleanup:
 	kubectl delete ns ${WORKLOAD_NAMESPACE} || true
-	gcloud --project ${PROJECT_ID} projects remove-iam-policy-binding \
-            ${PROJECT_ID} \
+	gcloud --project ${CONFIG_PROJECT_ID} projects remove-iam-policy-binding \
+            ${CONFIG_PROJECT_ID} \
             --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
             --role="roles/container.clusterViewer" || true
 	gcloud --project ${PROJECT_ID} iam service-accounts -q delete k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com || true
