@@ -12,36 +12,58 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cas
+package gcp
 
 import (
-	"context"
 	"fmt"
-	"log"
 	"time"
 
-	privateca "cloud.google.com/go/security/privateca/apiv1"
+	"context"
+	"log"
+
 	"google.golang.org/api/option"
-	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"k8s.io/apimachinery/pkg/util/rand"
 
+	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1"
+	privateca "cloud.google.com/go/security/privateca/apiv1"
 )
 
-
-// GoogleCASClient: Agent side plugin for Google CAS
-type GoogleCASClient struct {
-	caSigner string
+type casCertProvider struct {
+	capool   string
 	caClient *privateca.CertificateAuthorityClient
 }
 
-// NewGoogleCASClient create a CA client for Google CAS.
-func NewGoogleCASClient(capool string, options ...option.ClientOption) (*GoogleCASClient, error) {
-	caClient := &GoogleCASClient{caSigner: capool}
+
+
+
+// NewCASCertProvider create a client for Google CAS.
+//
+// capool is in format: projects/*/locations/*/caPools/*
+//
+// Should default based on the config project and the location of the config cluster.
+//
+// Files: if running as root, will create the well-known files:
+// -
+//
+// In GKE, if "--enable-mesh-certificates" cluster option and and the annotation
+//  "security.cloud.google.com/use-workload-certificates" will automatically
+// create the files and this is not needed. As such the file should be checked first.
+// The config in GKE is based on WorkloadCertificateConfig - this file is attempting to emulate it.
+//
+//
+// See: https://cloud.google.com/traffic-director/docs/security-proxyless-setup?hl=en
+func NewCASCertProvider(capool string, ol []grpc.DialOption) (*casCertProvider, error) {
+	caClient := &casCertProvider{capool: capool}
 	ctx := context.Background()
 	var err error
 
-	caClient.caClient, err = privateca.NewCertificateAuthorityClient(ctx, options...)
+	var ol1  []option.ClientOption
+	for _, v := range ol {
+		ol1 = append(ol1, option.WithGRPCDialOption(v))
+	}
+	caClient.caClient, err = privateca.NewCertificateAuthorityClient(ctx, ol1...)
 
 	if err != nil {
 		log.Printf("unable to initialize google cas caclient: %v", err)
@@ -50,13 +72,16 @@ func NewGoogleCASClient(capool string, options ...option.ClientOption) (*GoogleC
 	return caClient, nil
 }
 
-func (r *GoogleCASClient) createCertReq(name string, csrPEM []byte, lifetime time.Duration) *privatecapb.CreateCertificateRequest {
+func (r *casCertProvider) createCertReq(csrPEM []byte, lifetime time.Duration) *privatecapb.CreateCertificateRequest {
 	var isCA bool = false
+
+	rand.Seed(time.Now().UnixNano())
+	name := fmt.Sprintf("csr-workload-%s", rand.String(8))
 
 	// We use Certificate_Config option to ensure that we only request a certificate with CAS supported extensions/usages.
 	// CAS uses the PEM encoded CSR only for its public key and infers the certificate SAN (identity) of the workload through SPIFFE identity reflection
 	creq := &privatecapb.CreateCertificateRequest{
-		Parent:        r.caSigner,
+		Parent:        r.capool,
 		CertificateId: name,
 		Certificate: &privatecapb.Certificate{
 			Lifetime: durationpb.New(lifetime),
@@ -92,20 +117,15 @@ func (r *GoogleCASClient) createCertReq(name string, csrPEM []byte, lifetime tim
 	return creq
 }
 
-// CSR Sign calls Google CAS to sign a CSR.
-func (r *GoogleCASClient) CSRSign(csrPEM []byte, certValidTTLInSec int64) ([]string, error) {
+// CSRSign returns the cert and the full path to the root. Istio workloads present full chains.
+func (r *casCertProvider) CSRSign(ctx context.Context, csrPEM []byte, certValidTTLInSec int64) ([]string, error) {
 	certChain := []string{}
 
-	rand.Seed(time.Now().UnixNano())
-	name := fmt.Sprintf("csr-workload-%s", rand.String(8))
-	creq := r.createCertReq(name, csrPEM, time.Duration(certValidTTLInSec)*time.Second)
-
-	ctx := context.Background()
+	creq := r.createCertReq(csrPEM, time.Duration(certValidTTLInSec)*time.Second)
 
 	cresp, err := r.caClient.CreateCertificate(ctx, creq)
 	if err != nil {
-		log.Printf("unable to create certificate: %v", err)
-		return []string{}, err
+		return certChain, err
 	}
 	certChain = append(certChain, cresp.GetPemCertificate())
 	certChain = append(certChain, cresp.GetPemCertificateChain()...)
@@ -113,15 +133,16 @@ func (r *GoogleCASClient) CSRSign(csrPEM []byte, certValidTTLInSec int64) ([]str
 }
 
 // GetRootCertBundle:  Get CA certs of the pool from Google CAS API endpoint
-func (r *GoogleCASClient) GetRootCertBundle() ([]string, error) {
-	var rootCertMap map[string]struct{} = make(map[string]struct{})
-	var trustbundle []string = []string{}
+//
+// This is using Istio style of returning only the root certificate from each chain - and requires
+// that each workload presents the full chain to the root (root is not actually required)
+func (r *casCertProvider) GetRootCertBundle(ctx context.Context) ([]string, error) {
+	rootCertMap := make(map[string]struct{})
+	trustbundle := []string{}
 	var err error
 
-	ctx := context.Background()
-
 	req := &privatecapb.FetchCaCertsRequest{
-		CaPool: r.caSigner,
+		CaPool: r.capool,
 	}
 	resp, err := r.caClient.FetchCaCerts(ctx, req)
 	if err != nil {
@@ -142,6 +163,3 @@ func (r *GoogleCASClient) GetRootCertBundle() ([]string, error) {
 	return trustbundle, nil
 }
 
-func (r *GoogleCASClient) Close() {
-	r.caClient.Close()
-}

@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/compute/metadata"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
@@ -72,6 +74,15 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		if err != nil {
 			return err
 		}
+	}
+	// If ProjectNumber used for P4SA not set, attempt to get it from ProjectID and fallback to metadata server
+	if kr.ProjectNumber == "" && kr.ProjectId != "" {
+		kr.ProjectNumber = gcp.ProjectNumber(kr.ProjectId)
+		log.Println("Got project number from GCP API", kr.ProjectNumber)
+	}
+	if kr.ProjectNumber == ""  {
+		// If project Id explicitly set, and not same as what metadata reports - fallback to getting it from GCP
+		kr.ProjectNumber, _ = metadata.NumericProjectID()
 	}
 
 	// Default the XDSAddr for this instance to the service created by the hgate install.

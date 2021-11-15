@@ -300,8 +300,7 @@ func (kr *KRun) StartIstioAgent() error {
 
 	// MCP config
 	// The following 2 are required for MeshCA.
-	env = addIfMissing(env, "GKE_CLUSTER_URL", fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
-		kr.ProjectId, kr.ClusterLocation, kr.ClusterName))
+	env = addIfMissing(env, "GKE_CLUSTER_URL", kr.ClusterAddress)
 	env = addIfMissing(env, "GCP_METADATA", fmt.Sprintf("%s|%s|%s|%s",
 		kr.ProjectId, kr.ProjectNumber, kr.ClusterName, kr.ClusterLocation))
 

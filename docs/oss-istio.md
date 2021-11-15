@@ -7,14 +7,27 @@ install.
 
 ```shell
 
-# Add the istio charts
-make helm/addcharts
+# Add the istio charts - make helm/addcharts
+helm repo add istio https://istio-release.storage.googleapis.com/charts
+helm repo update
 
-# Deploy CRDs
-make deploy/istio-base
+# Deploy Istio CRDs - make deploy/istio-base
+CHART_VERSION=--devel
+kubectl create namespace istio-system 
+helm upgrade --install istio-base istio/base -n istio-system ${CHART_VERSION} 
 
-# Deploy Istiod
-make deploy/istiod
+# Deploy Istiod - make deploy/istiod
+	helm upgrade --install \
+ 		-n istio-system \
+ 		istiod \
+        istio/istiod \
+        ${CHART_VERSION} \
+		--set telemetry.enabled=true \
+		--set global.sds.token.aud="${CONFIG_PROJECT_ID}.svc.id.goog" \
+        --set meshConfig.trustDomain="${CONFIG_PROJECT_ID}.svc.id.goog" \
+		--set pilot.env.TOKEN_AUDIENCES="${CONFIG_PROJECT_ID}.svc.id.goog\,istio-ca" \
+        --set pilot.env.ISTIO_MULTIROOT_MESH=true 
+
 #or for GKE autopilot:
 #make deploy/istiod-autopilot
 

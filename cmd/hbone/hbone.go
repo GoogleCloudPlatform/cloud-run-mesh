@@ -51,7 +51,7 @@ func main() {
 	//flag.Var(&localForwards, "LocalForward", "SSH-style local forward")
 	flag.Parse()
 
-	kr := mesh.New("")
+	kr := mesh.New()
 
 	kr.VendorInit = gcp.InitGCP
 

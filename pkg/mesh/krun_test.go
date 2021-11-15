@@ -31,7 +31,7 @@ func TestK8S(t *testing.T) {
 	os.Mkdir("../../../out", 0775)
 	os.Chdir("../../../out")
 
-	kr := New("")
+	kr := New()
 
 	err := kr.LoadConfig(context2.Background())
 	if err != nil {

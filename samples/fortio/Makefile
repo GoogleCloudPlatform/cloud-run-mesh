@@ -13,6 +13,12 @@ CLUSTER_NAME?=istio
 # Region where CR will be deployed
 REGION?=us-central1
 
+# By default, cloudrun will run in same project as the config clusters.
+CONFIG_PROJECT_ID?=${PROJECT_ID}
+export CONFIG_PROJECT_ID
+
+K8S_CONTEXT?=gke_${CONFIG_PROJECT_ID}_${CLUSTER_LOCATION}_${CLUSTER_NAME}
+
 
 ################ derived values
 
@@ -68,7 +74,7 @@ deploy:
 		  --execution-environment=gen2 \
 		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
 		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
-          --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+          --vpc-connector projects/${CONFIG_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
          \
          --allow-unauthenticated \
          \
@@ -81,6 +87,7 @@ deploy:
 		--image ${FORTIO_IMAGE} \
 		\
   		  ${FORTIO_DEPLOY_EXTRA} \
+  		  --set-env-vars=MESH=gke://${CONFIG_PROJECT_ID} \
  		 --set-env-vars="DEPLOY=$(shell date +%y%m%d-%H%M)"
 
 # This is the barebone deploy, with auth enabled
@@ -89,12 +96,15 @@ deploy-auth:
 		  --execution-environment=gen2 \
 		  --platform managed --project ${PROJECT_ID} --region ${REGION} \
 		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
-          --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+          --vpc-connector projects/${CONFIG_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
          \
          --use-http2 \
          --port 15009 \
          \
+		--no-allow-unauthenticated \
+         \
          --image ${FORTIO_IMAGE} \
+  		  --set-env-vars=MESH=gke://${CONFIG_PROJECT_ID} \
   		 ${FORTIO_DEPLOY_EXTRA}
 
 
@@ -109,21 +119,38 @@ pull:
 
 ###########################################
 
-# Create a Google Service Account (GSA) associated with the k8s namespace.
-# Grant 'clusterViewer' role (container.clusters,resourcemanager.projects)(.get,.list)
+# Create a Google Service Account (GSA) associated with the k8s namespace in the config clusters.
+#
+# Will grant 'clusterViewer' role, needed to list the config clusters (container.clusters,resourcemanager.projects)(.get,.list)
 # TODO: document alternative (storing cluster config in mesh.env)
 setup-gsa:
 	gcloud --project ${PROJECT_ID} iam service-accounts create k8s-${WORKLOAD_NAMESPACE} \
-      --display-name "Service account with access to ${WORKLOAD_NAMESPACE} k8s namespace"
-	gcloud --project ${PROJECT_ID} projects add-iam-policy-binding \
-            ${PROJECT_ID} \
+      --display-name "Service account with access to ${WORKLOAD_NAMESPACE} k8s namespace" || true
+
+	# Grant the GSA running the workload permission to connect to the config clusters in the config project.
+	# Will use the 'SetQuotaProject' - otherwise the GKE API must be enabled in the workload project.
+	gcloud --project ${CONFIG_PROJECT_ID} projects add-iam-policy-binding \
+            ${CONFIG_PROJECT_ID} \
             --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
             --role="roles/container.clusterViewer"
+	# This allows the GSA to use the GKE and other APIs in the 'config cluster' project.
+	gcloud --project ${CONFIG_PROJECT_ID} projects add-iam-policy-binding \
+            ${CONFIG_PROJECT_ID} \
+            --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
+            --role="roles/serviceusage.serviceUsageConsumer"
 
+	# Also allow the use of TD
+	gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+	  --member serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com \
+	   --role roles/trafficdirector.client
+
+# Setup workload identity - used to make the KSA and GSA 'equivlent'.
+# This allows metadata server to impersonate the GSA.
+setup-wi:
     # Map the KSA to the GSA (Workload identity)
 	gcloud iam service-accounts add-iam-policy-binding \
 		--role roles/iam.workloadIdentityUser \
-		--member "serviceAccount:${PROJECT_ID}.svc.id.goog[${WORKLOAD_NAMESPACE}/default]" \
+		--member "serviceAccount:${CONFIG_PROJECT_ID}.svc.id.goog[${WORKLOAD_NAMESPACE}/default]" \
 		k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com
 	# K8S side of the mapping.
 	kubectl annotate serviceaccount \
@@ -132,18 +159,18 @@ setup-gsa:
     # At this point, Pods running as default KSA can test:
 	# curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/service-accounts/
 
-setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
+setup-hgate: PROJECT_NUMBER=$(shell gcloud projects describe ${CONFIG_PROJECT_ID} --format="value(projectNumber)")
 setup-hgate:
 	gcloud run services add-iam-policy-binding ${SERVICE} \
-      --member="serviceAccount:${PROJECT_ID}.svc.id.goog[istio-system/default]" \
+      --member="serviceAccount:${CONFIG_PROJECT_ID}.svc.id.goog[istio-system/default]" \
       --role='roles/run.invoker'
 	gcloud run services add-iam-policy-binding ${SERVICE} \
       --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-meshdataplane.iam.gserviceaccount.com" \
       --role='roles/run.invoker'
 
 setup-rbac:
-	kubectl create ns ${WORKLOAD_NAMESPACE} || true
-	cat ../../manifests/google-service-account-template.yaml | envsubst  | kubectl apply -f -
+	kubectl --context ${K8S_CONTEXT} create ns ${WORKLOAD_NAMESPACE} || true
+	cat ../../manifests/google-service-account-template.yaml | envsubst  | kubectl --context ${K8S_CONTEXT} apply -f -
 
 # Setup service must be called after deploy
 setup-service: setup-sni
@@ -157,8 +184,8 @@ setup-sni:
 
 cleanup:
 	kubectl delete ns ${WORKLOAD_NAMESPACE} || true
-	gcloud --project ${PROJECT_ID} projects remove-iam-policy-binding \
-            ${PROJECT_ID} \
+	gcloud --project ${CONFIG_PROJECT_ID} projects remove-iam-policy-binding \
+            ${CONFIG_PROJECT_ID} \
             --member="serviceAccount:k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com" \
             --role="roles/container.clusterViewer" || true
 	gcloud --project ${PROJECT_ID} iam service-accounts -q delete k8s-${WORKLOAD_NAMESPACE}@${PROJECT_ID}.iam.gserviceaccount.com || true
@@ -175,12 +202,28 @@ logs:
 		--freshness 1h \
  		'resource.type="cloud_run_revision" AND resource.labels.location = "us-central1" AND resource.labels.service_name="${SERVICE}"'
 
+# In order to use shared VPC, cloudrun must have the permission.
+# Once per project.
+vpc-access: PROJECT_NUMBER=$(shell gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
+vpc-access:
+	# Requires compute.organizations.enableXpnHost
+#	gcloud projects add-iam-policy-binding ${CONFIG_PROJECT_ID} \
+#		--role roles/vpcaccess.serviceAgent \
+#		--member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-vpcaccess.iam.gserviceaccount.com"
+	gcloud compute shared-vpc enable ${CONFIG_PROJECT_ID}
+	gcloud compute shared-vpc associated-projects add ${PROJECT_ID} \
+    	--host-project ${CONFIG_PROJECT_ID}
+
+	gcloud projects add-iam-policy-binding ${CONFIG_PROJECT_ID} \
+		--role roles/vpcaccess.user \
+		--member "serviceAccount:service-${PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com" \
+
+
 setupcon-sharedvpc:
-	gcloud services enable vpcaccess.googleapis.com
-	gcloud compute networks vpc-access connectors create serverlesscon \
+	gcloud services --project ${CONFIG_PROJECT_ID} enable vpcaccess.googleapis.com
+	gcloud compute --project ${CONFIG_PROJECT_ID} networks vpc-access connectors create serverlesscon \
     --region ${REGION} \
-    --subnet default \
-    --subnet-project ${PROJECT_ID} \
+    --range 10.8.0.0/28 \
     --min-instances 2 \
-    --max-instances 10 \
+    --max-instances 10
 

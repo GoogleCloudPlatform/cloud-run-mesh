@@ -27,7 +27,7 @@ import (
 
 // TestSTS uses a k8s connection and env to locate the mesh, and tests the token generation.
 func TestSTS(t *testing.T) {
-	kr := mesh.New("")
+	kr := mesh.New()
 
 	ctx, cf := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cf()
@@ -45,7 +45,7 @@ func TestSTS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	log.Println(mesh.TokenPayload(masterT), kr.ProjectNumber)
+	log.Println(mesh.TokenPayload(masterT))
 
 	s, err := NewSTS(kr)
 	if err != nil {
