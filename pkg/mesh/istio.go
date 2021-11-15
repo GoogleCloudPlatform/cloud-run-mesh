@@ -16,10 +16,12 @@ package mesh
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"

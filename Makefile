@@ -9,7 +9,13 @@ OUT?=${ROOT_DIR}/../out/krun
 
 -include .local.mk
 
-PROJECT_ID?=wlhe-cr
+# The CI/CD infra uses:
+# wlhe-cr project, clusters istio and asm-cr - for single project testing
+#
+# mcp-prod project as config project, with mesh-config-1 as config cluster
+# cloudrun-multiproject as workload project for MP, shared VPC testing.
+
+PROJECT_ID?=$(shell gcloud config get-value project)
 export PROJECT_ID
 
 
@@ -38,7 +44,7 @@ TAG ?= latest
 export TAG
 
 # Derived values
-
+# Default repo for pulling images is in the project.
 REPO?=gcr.io/${PROJECT_ID}
 
 DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
@@ -79,7 +85,8 @@ deploy/hgate:
 	kubectl apply -k ${OUT}/manifests
 	#kubectl apply -f manifests/hgate/
 	kubectl rollout restart deployment hgate -n istio-system
-	kubectl wait deployments hgate -n istio-system --for=condition=available
+	kubectl rollout status deployment hgate -n istio-system
+	#kubectl wait deployments hgate -n istio-system --for=condition=available
 
 # Remove the namespaces and apps, for testing 'clean install'
 cluster/clean:

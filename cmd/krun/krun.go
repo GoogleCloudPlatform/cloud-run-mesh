@@ -28,13 +28,16 @@ import (
 var initDebug func(run *mesh.KRun)
 
 func main() {
+	ctx := context.Background()
 	kr := mesh.New()
 
-	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
-	kr.VendorInit = gcp.InitGCP
+	err := gcp.InitGCP(ctx, kr)
+	if err != nil {
+		log.Fatal("Failed to find K8S ", time.Since(kr.StartTime), kr, os.Environ(), err)
+	}
 
 	// Use env and vendor init to discover the mesh - including APIserver, XDS, roots.
-	err := kr.LoadConfig(context.Background())
+	err = kr.LoadConfig(context.Background())
 	if err != nil {
 		log.Fatal("Failed to connect to mesh ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}

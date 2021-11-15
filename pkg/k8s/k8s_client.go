@@ -12,18 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package mesh
+package k8s
 
 import (
 	"context"
-	"errors"
 	"flag"
-	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 
+	"errors"
+
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
@@ -34,6 +37,12 @@ import (
 )
 
 var Debug = false
+
+type K8S struct {
+	Mesh *mesh.KRun
+	Client                                  *kubernetes.Clientset
+	VendorInit func(context.Context, *K8S)  error
+}
 
 // Init klog.InitFlags from an env (to avoid messing with the CLI of
 // the app). For example -v=9 lists full request content, -v=7 lists requests headers
@@ -49,7 +58,7 @@ func init() {
 //
 // error is set if KUBECONFIG is set or ~/.kube/config exists and
 // fail to load. If the file doesn't exist, err is nil.
-func (kr *KRun) initUsingKubeConfig() error {
+func (kr *K8S) initUsingKubeConfig() error {
 	// Explicit kube config - use it
 	kc := os.Getenv("KUBECONFIG")
 	if kc == "" {
@@ -62,17 +71,17 @@ func (kr *KRun) initUsingKubeConfig() error {
 			parts := strings.Split(cf.CurrentContext, "_")
 			if len(parts) > 3 {
 				// TODO: if env variable with cluster name/location are set - use that for context
-				kr.ProjectId = parts[1]
-				kr.ClusterLocation = parts[2]
-				kr.ClusterName = parts[3]
+				kr.Mesh.ProjectId = parts[1]
+				kr.Mesh.ClusterLocation = parts[2]
+				kr.Mesh.ClusterName = parts[3]
 			}
 		}
 		if strings.HasPrefix(cf.CurrentContext, "connectgateway_") {
 			parts := strings.Split(cf.CurrentContext, "_")
 			if len(parts) > 2 {
 				// TODO: if env variable with cluster name/location are set - use that for context
-				kr.ProjectId = parts[1]
-				kr.ClusterName = parts[2]
+				kr.Mesh.ProjectId = parts[1]
+				kr.Mesh.ClusterName = parts[2]
 			}
 		}
 
@@ -93,7 +102,7 @@ func (kr *KRun) initUsingKubeConfig() error {
 	return nil
 }
 
-func (kr *KRun) initInCluster() error {
+func (kr *K8S) initInCluster() error {
 	if kr.Client != nil {
 		return nil
 	}
@@ -112,55 +121,12 @@ func (kr *KRun) initInCluster() error {
 	if Debug {
 		log.Println("Using in-cluster k8s ", hostInClustser)
 	}
-	kr.InCluster = true
+	kr.Mesh.InCluster = true
 	return nil
 }
 
-// LoadConfig gets the default k8s client, using environment
-// variables to decide how:
-//
-// - KUBECONFIG or $HOME/.kube/config will be tried first
-// - GKE is checked - using env or metadata server to get
-//   PROJECT_ID, CLUSTER_LOCATION, CLUSTER_NAME (if not set), and
-//   construct a kube config to use.
-// - (in future other vendor-specific methods may be added)
-// - finally in-cluster will be checked.
-//
-// Once the cluster is found, additional config can be loaded from
-// the cluster.
-func (kr *KRun) LoadConfig(ctx context.Context) error {
-	mesh := kr.Config("MESH", "")
-	if mesh != "" {
-		meshURL, err := url.Parse(mesh)
-		if err != nil {
-			return fmt.Errorf("Invalid meshURL", mesh, err)
-		}
-		kr.MeshAddr = meshURL
-	}
-	// TODO: if meshURL is set and is file:// or gke:// - use it directly
-
-	err := kr.K8SClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Load additional settings from env.
-	kr.initFromEnv()
-
-	// It is possible to have only one of the 2 mesh connector services installed
-	if kr.XDSAddr == "" || kr.ProjectNumber == "" ||
-		(kr.MeshConnectorAddr == "" && kr.MeshConnectorInternalAddr == "") {
-		err := kr.loadMeshEnv(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-	return err
-}
-
-// K8SClient will discover a K8S config cluster.
-func (kr *KRun) K8SClient(ctx context.Context) error {
+// K8SClient will discover a K8S config cluster and return the client
+func (kr *K8S) K8SClient(ctx context.Context) error {
 	if kr.Client != nil {
 		return nil
 	}
@@ -186,4 +152,69 @@ func (kr *KRun) K8SClient(ctx context.Context) error {
 	}
 
 	return errors.New("not found")
+}
+
+// LoadConfig gets the default k8s client, using environment
+// variables to decide how:
+//
+// - KUBECONFIG or $HOME/.kube/config will be tried first
+// - GKE is checked - using env or metadata server to get
+//   PROJECT_ID, CLUSTER_LOCATION, CLUSTER_NAME (if not set), and
+//   construct a kube config to use.
+// - (in future other vendor-specific methods may be added)
+// - finally in-cluster will be checked.
+//
+// Once the cluster is found, additional config can be loaded from
+// the cluster.
+
+// Read with Secrets and ConfigMaps
+
+func (kr *K8S) GetCM(ctx context.Context, ns string, name string) (map[string]string, error) {
+	s, err := kr.Client.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if Is404(err) {
+			err = nil
+		}
+		return map[string]string{}, err
+	}
+
+	return s.Data, nil
+}
+
+func (kr *K8S) GetSecret(ctx context.Context, ns string, name string) (map[string][]byte, error) {
+	s, err := kr.Client.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if Is404(err) {
+			err = nil
+		}
+		return map[string][]byte{}, err
+	}
+
+	return s.Data, nil
+}
+
+func Is404(err error) bool {
+	if se, ok := err.(*k8serrors.StatusError); ok {
+		if se.ErrStatus.Code == 404 {
+			return true
+		}
+	}
+	return false
+}
+
+// GetToken returns a token with the given audience for the current KSA, using CreateToken request.
+// Used by the STS token exchanger.
+func (kr *K8S) GetToken(ctx context.Context, aud string) (string, error) {
+	treq := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			Audiences: []string{aud},
+		},
+	}
+	ts, err := kr.Client.CoreV1().ServiceAccounts(kr.Mesh.Namespace).CreateToken(ctx,
+		kr.Mesh.KSA, treq, metav1.CreateOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return ts.Status.Token, nil
 }

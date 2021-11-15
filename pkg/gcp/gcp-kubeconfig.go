@@ -25,7 +25,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/k8s"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -92,53 +95,58 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 	}
 
 	t0 := time.Now()
-	if !metadata.OnGCE() {
-		return
-	}
-	metaProjectId, _ := metadata.ProjectID()
-	if kr.ProjectId == "" {
-		kr.ProjectId = metaProjectId
-	}
+	if metadata.OnGCE() {
+		// TODO: detect if the cluster is k8s from some env ?
+		// If ADC is set, we will only use the env variables. Else attempt to init from metadata server.
+		metaProjectId, _ := metadata.ProjectID()
+		if kr.ProjectId == "" {
+			kr.ProjectId = metaProjectId
+		}
 
-	//instanceID, _ := metadata.InstanceID()
-	//instanceName, _ := metadata.InstanceName()
-	//zone, _ := metadata.Zone()
-	//pAttr, _ := metadata.ProjectAttributes()
-	//hn, _ := metadata.Hostname()
-	//iAttr, _ := metadata.InstanceAttributes()
+		//instanceID, _ := metadata.InstanceID()
+		//instanceName, _ := metadata.InstanceName()
+		//zone, _ := metadata.Zone()
+		//pAttr, _ := metadata.ProjectAttributes()
+		//hn, _ := metadata.Hostname()
+		//iAttr, _ := metadata.InstanceAttributes()
 
-	email, _ := metadata.Email("default")
-	// In CloudRun: Additional metadata: iid 00bf4b...f23 iname  iattr [] zone us-central1-1 hostname  pAttr [] email k8s-fortio@wlhe-cr.iam.gserviceaccount.com
+		email, _ := metadata.Email("default")
+		// In CloudRun: Additional metadata: iid 00bf4b...f23 iname  iattr [] zone us-central1-1 hostname  pAttr [] email k8s-fortio@wlhe-cr.iam.gserviceaccount.com
 
-	//log.Println("Additional metadata:", "iid", instanceID, "iname", instanceName, "iattr", iAttr,
-	//	"zone", zone, "hostname", hn, "pAttr", pAttr, "email", email)
+		//log.Println("Additional metadata:", "iid", instanceID, "iname", instanceName, "iattr", iAttr,
+		//	"zone", zone, "hostname", hn, "pAttr", pAttr, "email", email)
 
-	if kr.Namespace == "" {
-		if strings.HasPrefix(email, "k8s-") {
-			parts := strings.Split(email[4:], "@")
-			kr.Namespace = parts[0]
-			if mesh.Debug {
-				log.Println("Defaulting Namespace based on email: ", kr.Namespace, email)
+		if kr.Namespace == "" {
+			if strings.HasPrefix(email, "k8s-") {
+				parts := strings.Split(email[4:], "@")
+				kr.Namespace = parts[0]
+				if mesh.Debug {
+					log.Println("Defaulting Namespace based on email: ", kr.Namespace, email)
+				}
 			}
 		}
-	}
-	var err error
-	if kr.InCluster && kr.ClusterName == "" {
-		kr.ClusterName, err = metadata.Get("instance/attributes/cluster-name")
-		if err != nil {
-			log.Println("Can't find cluster name")
+		var err error
+		if kr.InCluster && kr.ClusterName == "" {
+			kr.ClusterName, err = metadata.Get("instance/attributes/cluster-name")
+			if err != nil {
+				log.Println("Can't find cluster name")
+			}
 		}
-	}
-	if kr.InCluster && kr.ClusterLocation == "" {
-		kr.ClusterLocation, err = metadata.Get("instance/attributes/cluster-location")
-		if err != nil {
-			log.Println("Can't find cluster location")
+		if kr.InCluster && kr.ClusterLocation == "" {
+			kr.ClusterLocation, err = metadata.Get("instance/attributes/cluster-location")
+			if err != nil {
+				log.Println("Can't find cluster location")
+			}
 		}
+
+		if kr.InstanceID == "" {
+			kr.InstanceID, _ = metadata.InstanceID()
+		}
+		if mesh.Debug {
+			log.Println("Configs from metadata ", time.Since(t0))
+		}
+		log.Println("Running as GSA ", email, kr.ProjectId, kr.ProjectNumber, kr.InstanceID, kr.ClusterLocation)
 	}
-	if kr.InstanceID == "" {
-		kr.InstanceID, _ = metadata.InstanceID()
-	}
-	log.Println("Running as GSA ", email, kr.ProjectId, kr.InstanceID, kr.ClusterLocation, time.Since(t0))
 }
 
 func RegionFromMetadata() (string, error) {
@@ -153,15 +161,54 @@ func RegionFromMetadata() (string, error) {
 	return vs[1], nil
 }
 
+func InitGCP(ctx context.Context, kr *mesh.KRun) error {
+	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
+	kc := &k8s.K8S{Mesh: kr, VendorInit: initGCP}
+	err := kc.K8SClient(ctx)
+	if err != nil {
+		return err
+	}
+	kr.Cfg = kc
+	kr.TokenProvider = kc
+
+	// After the config was loaded.
+	kr.PostConfigLoad = PostConfigLoad
+	return err
+}
+
+func PostConfigLoad(ctx context.Context, kr *mesh.KRun) error {
+	var err error
+	// TODO: Use MeshCA if citadel is not in cluster
+	tokenProvider, err := sts.NewSTS(kr)
+
+	// This doesn't work
+	//  Could not use the REFLECTED_SPIFFE subject mode because the caller does not have a SPIFFE identity. Please visit the CA Service documentation to ensure that this is a supported use-case
+	//  tokenProvider.MDPSA = true
+	// The token MUST be the federated access token
+
+	tokenProvider.UseAccessToken = true // even if audience is provided.
+
+	var ol []grpc.DialOption
+	ol = append(ol, grpc.WithPerRPCCredentials(tokenProvider))
+	//ol = append(ol, OTELGRPCClient()...)
+
+	kr.CSRSigner, err = NewCASCertProvider("projects/"+kr.ProjectId+
+			"/locations/"+kr.Region()+"/caPools/mesh", ol)
+	
+	return err
+}
+
+
 // InitGCP loads GCP-specific metadata and discovers the config cluster.
 // This step is skipped if user has explicit configuration for required settings.
 //
 // Namespace,
 // ProjectId, ProjectNumber
 // ClusterName, ClusterLocation
-func InitGCP(ctx context.Context, kr *mesh.KRun) error {
+func initGCP(ctx context.Context, kc *k8s.K8S) error {
+	kr := kc.Mesh
 	// Load GCP env variables - will be needed.
-	configFromEnvAndMD(ctx, kr)
+	configFromEnvAndMD(ctx, kc.Mesh)
 
 	if kr.Client != nil {
 		// Running in-cluster or using kube config
@@ -169,7 +216,7 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	}
 
 	t0 := time.Now()
-	var kc *kubeconfig.Config
+	var kConfig *kubeconfig.Config
 	var err error
 
 	// TODO: attempt to get the config project ID from a label on the workload or project
@@ -185,7 +232,7 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 		} else if kr.MeshAddr.Host == "container.googleapis.com" {
 			// Not using the hub resourceLink format:
 			//    container.googleapis.com/projects/wlhe-cr/locations/us-central1-c/clusters/asm-cr
-			// but the 'selfLink' from GKE list API
+			// or the 'selfLink' from GKE list API
 			// "https://container.googleapis.com/v1/projects/wlhe-cr/locations/us-west1/clusters/istio"
 
 			configProjectID = kr.MeshAddr.Host
@@ -235,12 +282,12 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 		}
 
 
-		cl = findCluster(kr, cll, myRegion, cl)
+		cl = findCluster(kc, cll, myRegion, cl)
 		// TODO: connect to cluster, find istiod - and keep trying until a working one is found ( fallback )
 	} else {
 		// Explicit override - user specified the full path to the cluster.
 		// ~400 ms
-		cl, err = GKECluster(ctx, configProjectID, configLocation, configClusterName)
+		cl, err = GKECluster(ctx, configProjectID, kr.ClusterLocation, kr.ClusterName)
 		if err != nil {
 			return err
 		}
@@ -253,7 +300,7 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	kr.ProjectId = configProjectID
 
 	kr.TrustDomain = configProjectID + ".svc.id.goog"
-	kc = cl.KubeConfig
+	kConfig = cl.KubeConfig
 	if kr.ClusterName == "" {
 		kr.ClusterName = cl.ClusterName
 	}
@@ -265,7 +312,7 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 
 	GCPInitTime = time.Since(t0)
 
-	rc, err := restConfig(kc)
+	rc, err := restConfig(kConfig)
 	if err != nil {
 		return err
 	}
@@ -282,20 +329,20 @@ func restConfig(kc *kubeconfig.Config) (*rest.Config, error) {
 	return clientcmd.NewNonInteractiveClientConfig(*kc, "", &clientcmd.ConfigOverrides{}, nil).ClientConfig()
 }
 
-func findCluster(kr *mesh.KRun, cll []*Cluster, myRegion string, cl *Cluster) *Cluster {
-	if kr.ClusterName != "" {
+func findCluster(kr *k8s.K8S, cll []*Cluster, myRegion string, cl *Cluster) *Cluster {
+	if kr.Mesh.ClusterName != "" {
 		for _, c := range cll {
 			if myRegion != "" && !strings.HasPrefix(c.ClusterLocation, myRegion) {
 				continue
 			}
-			if c.ClusterName == kr.ClusterName {
+			if c.ClusterName == kr.Mesh.ClusterName {
 				cl = c
 				break
 			}
 		}
 		if cl == nil {
 			for _, c := range cll {
-				if c.ClusterName == kr.ClusterName {
+				if c.ClusterName == kr.Mesh.ClusterName {
 					cl = c
 					break
 				}
@@ -390,21 +437,19 @@ func AllClusters(ctx context.Context, kr *mesh.KRun, configProjectId string,
 	label string, meshID string) ([]*Cluster, error) {
 	clustersL := []*Cluster{}
 
-	if configProjectId == "" {
-		configProjectId = kr.ProjectId
-	}
-
 	cl, err := container.NewClusterManagerClient(ctx,option.WithQuotaProject(configProjectId))
 	if err != nil {
 		return nil, err
 	}
 
+	if configProjectId == "" {
+		configProjectId = kr.ProjectId
+	}
 	clcr := &containerpb.ListClustersRequest{
 		Parent: "projects/" + configProjectId + "/locations/-",
 	}
 	clusters, err := cl.ListClusters(ctx, clcr)
 	if err != nil {
-		log.Println("Failed to list ", clcr.Parent)
 		return nil, err
 	}
 

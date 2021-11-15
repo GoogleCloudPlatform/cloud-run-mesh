@@ -1,12 +1,76 @@
 package mesh
 
-import "context"
+import (
+	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"io/ioutil"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
-// Common file for cert management
+// WIP - consolidate cert signing, not require pilot-agent for proxyless gRPC.
 
-type CertProvider interface {
+const (
+	blockTypeECPrivateKey    = "EC PRIVATE KEY"
+	blockTypeRSAPrivateKey   = "RSA PRIVATE KEY" // PKCS#1 private key
+	blockTypePKCS8PrivateKey = "PRIVATE KEY"     // PKCS#8 plain private key
+)
+
+// Common setup for cert management.
+// After the 'mesh-env' is loaded (from env, k8s, URL) the next step is to init the workload identity.
+// This must happen before connecting to XDS - since certs is one of the possible auth methods.
+//
+// The logic is:
+// - (best case) certificates already provisioned by platform. Detects GKE paths (CAS), old Istio, CertManager style
+//   If workload certs are platform-provisioned: extract trust domain, namespace, name, pod id from cert.
+//
+// - Detect the WORKLOAD_SERVICE_ACCOUNT, trust domain from JWT or mesh-env
+// - Use WORKLOAD_CERT json to load the config for the CSR, create a CSR
+// - Call CSRSigner.
+// - Save the certificates if running as root or an output dir is set. This will use CAS naming convention.
+//
+// If envoy + pilot-agent are used, they should be configured to use the cert files.
+// This is done by setting "CA_PROVIDER=GoogleGkeWorkloadCertificate" when starting pilot-agent
+func (kr *KRun) InitCertificates(ctx context.Context, outDir string) error {
+	var err error
+	keyFile := filepath.Join(certBase, privateKey)
+	chainFile := filepath.Join(certBase, cert)
+	if _, err = os.Stat(keyFile); os.IsNotExist(err) {
+		if kr.CSRSigner == nil {
+			return nil
+		}
+		priv, csr, err := kr.NewCSR("rsa", kr.TrustDomain, "spiffe://"+kr.TrustDomain+"/ns/"+kr.Namespace+"/sa/"+kr.KSA)
+		if err != nil {
+			log.Fatal("Failed to find mesh certificates ", err)
+		}
+		chain, err := kr.CSRSigner.CSRSign(ctx, csr, 24*3600)
+		certChain := strings.Join(chain, "\n")
+
+		ecb, _ := x509.MarshalPKCS8PrivateKey(priv)
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: ecb})
+
+		ioutil.WriteFile(keyFile,keyPEM, 0660)
+		ioutil.WriteFile(chainFile, []byte(certChain), 0660)
+
+		// The roots are extracted from the mesh env.
+
+	} else {
+		log.Println("Using existing cert and roots")
+	}
+
+	return err
+}
+
+type CSRSigner interface {
 	CSRSign(ctx context.Context, csrPEM []byte, certValidTTLInSec int64) ([]string, error)
-	GetRootCertBundle(ctx context.Context)
 }
 
 const (
@@ -92,4 +156,55 @@ func CheckFiles() {
 //
 func SaveFiles() {
 
+}
+
+func (a *KRun) NewCSR(kty string, trustDomain, san string) (privPEM []byte, csrPEM []byte, err error) {
+	var priv crypto.PrivateKey
+
+	if kty == "ec256" {
+		// TODO
+	}
+	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	priv = rsaKey
+
+	csr := GenCSRTemplate(trustDomain, san)
+	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, csr, priv)
+
+	encodeMsg := "CERTIFICATE REQUEST"
+
+	csrPEM = pem.EncodeToMemory(&pem.Block{Type: encodeMsg, Bytes: csrBytes})
+
+	var encodedKey []byte
+	//if pkcs8 {
+	//	if encodedKey, err = x509.MarshalPKCS8PrivateKey(priv); err != nil {
+	//		return nil, nil, err
+	//	}
+	//	privPem = pem.EncodeToMemory(&pem.Block{Type: blockTypePKCS8PrivateKey, Bytes: encodedKey})
+	//} else {
+	switch k := priv.(type) {
+	case *rsa.PrivateKey:
+		encodedKey = x509.MarshalPKCS1PrivateKey(k)
+		privPEM = pem.EncodeToMemory(&pem.Block{Type: blockTypeRSAPrivateKey, Bytes: encodedKey})
+	case *ecdsa.PrivateKey:
+		encodedKey, err = x509.MarshalECPrivateKey(k)
+		if err != nil {
+			return nil, nil, err
+		}
+		privPEM = pem.EncodeToMemory(&pem.Block{Type: blockTypeECPrivateKey, Bytes: encodedKey})
+	}
+	//}
+
+	return
+}
+
+func GenCSRTemplate(trustDomain, san string) *x509.CertificateRequest {
+	template := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			Organization: []string{trustDomain},
+		},
+	}
+
+	// TODO: add the SAN, it is not required, server will fill up
+
+	return template
 }
