@@ -240,7 +240,7 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	} else {
 		// Explicit override - user specified the full path to the cluster.
 		// ~400 ms
-		cl, err = GKECluster(ctx, configProjectID, configLocation, configClusterName)
+		cl, err = GKECluster(ctx, kr, configProjectID, configLocation, configClusterName)
 		if err != nil {
 			return err
 		}
@@ -337,8 +337,12 @@ func findCluster(kr *mesh.KRun, cll []*Cluster, myRegion string, cl *Cluster) *C
 	return cl
 }
 
-func GKECluster(ctx context.Context, p, l, clusterName string) (*Cluster, error) {
-	cl, err := container.NewClusterManagerClient(ctx, option.WithQuotaProject(p))
+func GKECluster(ctx context.Context, kr *mesh.KRun, p, l, clusterName string) (*Cluster, error) {
+	opts := []option.ClientOption{}
+	if p != kr.ProjectId {
+		opts = append(opts, option.WithQuotaProject(p))
+	}
+	cl, err := container.NewClusterManagerClient(ctx, opts...)
 	if err != nil {
 		log.Println("Failed NewClusterManagerClient", p, l, clusterName, err)
 		return nil, err
@@ -392,7 +396,11 @@ func AllClusters(ctx context.Context, kr *mesh.KRun, configProjectId string,
 		configProjectId = kr.ProjectId
 	}
 
-	cl, err := container.NewClusterManagerClient(ctx,option.WithQuotaProject(configProjectId))
+	opts := []option.ClientOption{}
+	if configProjectId != kr.ProjectId {
+		opts = append(opts, option.WithQuotaProject(configProjectId))
+	}
+	cl, err := container.NewClusterManagerClient(ctx,opts...)
 	if err != nil {
 		return nil, err
 	}
