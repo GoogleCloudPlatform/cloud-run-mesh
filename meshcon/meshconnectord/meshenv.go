@@ -44,7 +44,7 @@ func (sg *MeshConnector) InitMeshEnv(ctx context.Context) error {
 func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
 	// TODO: depending on error, move on or report a real error
 	kr := sg.Mesh
-	cm, err := kr.GetCM(ctx, "istio-system", "istio-ca-root-cert")
+	cm, err := kr.Cfg.GetCM(ctx, "istio-system", "istio-ca-root-cert")
 	if err != nil {
 		if mesh.Is404(err) {
 			return "", nil

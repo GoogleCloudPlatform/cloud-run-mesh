@@ -16,6 +16,8 @@ package mesh
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -170,7 +172,8 @@ type KRun struct {
 	TransportWrapper func(transport http.RoundTripper) http.RoundTripper
 
 	// Function to call after config has been loaded, before init certs.
-	PostConfigLoad   func(ctx context.Context, kr *KRun) error
+	PostConfigLoad func(ctx context.Context, kr *KRun) error
+	X509KeyPair    tls.Certificate
 }
 
 var Debug = false
@@ -182,7 +185,7 @@ func New() *KRun {
 		Aud2File:    map[string]string{},
 		Labels:      map[string]string{},
 		ProxyConfig: &ProxyConfig{},
-		MeshEnv: map[string]string{},
+		MeshEnv:     map[string]string{},
 	}
 	kr.initFromEnv()
 	return kr
@@ -211,7 +214,6 @@ func (kr *KRun) initFromEnv() {
 	}
 
 	// TODO: if meshURL is set and is file:// or gke:// - use it directly
-
 
 	if kr.KSA == "" {
 		// Same environment used for VMs
@@ -308,11 +310,10 @@ func (kr *KRun) initFromEnv() {
 	kr.AgentDebug = kr.Config("XDS_AGENT_DEBUG", "")
 }
 
-
 func (kr *KRun) LoadConfig(ctx context.Context) error {
 	// It is possible to have only one of the 2 mesh connector services installed
 	if kr.XDSAddr == "" || kr.ProjectNumber == "" ||
-			(kr.MeshConnectorAddr == "" && kr.MeshConnectorInternalAddr == "") {
+		(kr.MeshConnectorAddr == "" && kr.MeshConnectorInternalAddr == "") {
 
 		err := kr.loadMeshEnv(ctx)
 		if err != nil {
@@ -323,6 +324,17 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 			kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
 		}
 	}
+
+	if kr.ClusterAddress == "" {
+		kr.ClusterAddress = fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
+			kr.ProjectId, kr.ClusterLocation, kr.ClusterName)
+	}
+
+	if kr.PostConfigLoad != nil {
+		kr.PostConfigLoad(ctx, kr)
+	}
+
+	kr.InitCertificates(ctx, certBase)
 
 	return nil
 }
@@ -397,6 +409,9 @@ func (kr *KRun) FindXDSAddr() string {
 // TODO: URL, like 'konfig' ( including gcp pseudo-URL like gcp://cluster.location.project/.... )
 //
 func (kr *KRun) loadMeshEnv(ctx context.Context) error {
+	if kr.Cfg == nil {
+		return nil // no k8s, skip loading.
+	}
 	d, err := kr.Cfg.GetCM(ctx, "istio-system", "mesh-env")
 	if err != nil {
 		return err

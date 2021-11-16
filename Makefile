@@ -27,10 +27,6 @@ CONFIG_PROJECT_ID?=${PROJECT_ID}
 # mesh-config-1
 CONFIG_CLUSTER_NAME?=${CLUSTER_NAME}
 
-# If the project is part of a multi-project, this is the hub id.
-FLEET_ID?=${CONFIG_PROJECT_ID}
-export FLEET_ID
-
 
 # Region where the cloudrun services are running
 REGION?=us-central1
@@ -413,12 +409,13 @@ cas/setup:
 	# Google managed
 	gcloud privateca roots create --project "${CONFIG_PROJECT_ID}" mesh-selfsigned --pool mesh --location ${REGION} \
 		--auto-enable \
-        --subject "CN=${PROJECT_ID}, O=${FLEET_ID}"
+        --subject "CN=${PROJECT_ID}, O=${CONFIG_PROJECT_ID}"
 
+	# In multi-project mode, workloads will still get a K8S token from the config project - which is exchanged with a certificate
 	gcloud privateca pools --project "${CONFIG_PROJECT_ID}" add-iam-policy-binding mesh \
         --project "${CONFIG_PROJECT_ID}" \
         --location "${REGION}" \
-        --member "group:${FLEET_ID}.svc.id.goog:/allAuthenticatedUsers/" \
+        --member "group:${CONFIG_PROJECT_ID}.svc.id.goog:/allAuthenticatedUsers/" \
         --role "roles/privateca.workloadCertificateRequester"
 
 # Setup the config cluster to use workload certificates.

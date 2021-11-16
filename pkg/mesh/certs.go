@@ -6,14 +6,15 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"io/ioutil"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // WIP - consolidate cert signing, not require pilot-agent for proxyless gRPC.
@@ -41,30 +42,48 @@ const (
 // This is done by setting "CA_PROVIDER=GoogleGkeWorkloadCertificate" when starting pilot-agent
 func (kr *KRun) InitCertificates(ctx context.Context, outDir string) error {
 	var err error
-	keyFile := filepath.Join(certBase, privateKey)
-	chainFile := filepath.Join(certBase, cert)
-	if _, err = os.Stat(keyFile); os.IsNotExist(err) {
-		if kr.CSRSigner == nil {
-			return nil
+	keyFile := filepath.Join(outDir, privateKey)
+	chainFile := filepath.Join(outDir, cert)
+	if outDir != "" {
+		kp, err := tls.LoadX509KeyPair(chainFile, keyFile)
+		if err == nil && len(kp.Certificate) > 0 {
+			kp.Leaf, _ = x509.ParseCertificate(kp.Certificate[0])
+
+			if !kp.Leaf.NotAfter.Before(time.Now()) {
+				log.Println("Existing Cert", "expires", kp.Leaf.NotAfter)
+				return nil
+			}
 		}
-		priv, csr, err := kr.NewCSR("rsa", kr.TrustDomain, "spiffe://"+kr.TrustDomain+"/ns/"+kr.Namespace+"/sa/"+kr.KSA)
-		if err != nil {
-			log.Fatal("Failed to find mesh certificates ", err)
-		}
-		chain, err := kr.CSRSigner.CSRSign(ctx, csr, 24*3600)
-		certChain := strings.Join(chain, "\n")
-
-		ecb, _ := x509.MarshalPKCS8PrivateKey(priv)
-		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: ecb})
-
-		ioutil.WriteFile(keyFile,keyPEM, 0660)
-		ioutil.WriteFile(chainFile, []byte(certChain), 0660)
-
-		// The roots are extracted from the mesh env.
-
-	} else {
-		log.Println("Using existing cert and roots")
 	}
+	if kr.CSRSigner == nil {
+		return nil
+	}
+	privPEM, csr, err := kr.NewCSR("rsa", kr.TrustDomain, "spiffe://"+kr.TrustDomain+"/ns/"+kr.Namespace+"/sa/"+kr.KSA)
+	if err != nil {
+		return err
+	}
+	chain, err := kr.CSRSigner.CSRSign(ctx, csr, 24*3600)
+	if err != nil {
+		return err
+	}
+	certChain := strings.Join(chain, "\n")
+
+	kp, err := tls.X509KeyPair([]byte(certChain), privPEM)
+	kr.X509KeyPair = kp
+
+	if err == nil && len(kp.Certificate) > 0 {
+		kp.Leaf, _ = x509.ParseCertificate(kp.Certificate[0])
+
+		if !kp.Leaf.NotAfter.Before(time.Now()) {
+			r, _ := x509.ParseCertificate(kp.Certificate[len(kp.Certificate) - 1])
+			log.Println("New Cert", "expires", kp.Leaf.NotAfter, "signer", r.Subject)
+		}
+	}
+	if outDir != "" {
+		ioutil.WriteFile(keyFile, privPEM, 0660)
+		ioutil.WriteFile(chainFile, []byte(certChain), 0660)
+	}
+	// The roots are extracted from the mesh env.
 
 	return err
 }

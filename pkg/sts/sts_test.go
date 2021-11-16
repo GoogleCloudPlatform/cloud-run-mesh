@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package sts
+package sts_test
 
 import (
 	"context"
@@ -21,8 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	_ "github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 )
 
 // TestSTS uses a k8s connection and env to locate the mesh, and tests the token generation.
@@ -32,7 +34,12 @@ func TestSTS(t *testing.T) {
 	ctx, cf := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cf()
 
-	err := kr.LoadConfig(ctx)
+	err := gcp.InitGCP(ctx, kr)
+	if err != nil {
+		log.Fatal("Failed to find K8S ", time.Since(kr.StartTime), kr, os.Environ(), err)
+	}
+
+	err = kr.LoadConfig(ctx)
 	if err != nil {
 		t.Skip("Failed to connect to GKE, missing kubeconfig ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}
@@ -47,7 +54,7 @@ func TestSTS(t *testing.T) {
 
 	log.Println(mesh.TokenPayload(masterT))
 
-	s, err := NewSTS(kr)
+	s, err := sts.NewSTS(kr)
 	if err != nil {
 		t.Fatal(err)
 	}

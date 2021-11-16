@@ -192,6 +192,8 @@ func PostConfigLoad(ctx context.Context, kr *mesh.KRun) error {
 	ol = append(ol, grpc.WithPerRPCCredentials(tokenProvider))
 	//ol = append(ol, OTELGRPCClient()...)
 
+	// TODO: only if mesh_env contains a WorkloadCertificateConfig with endpoint starting with //privateca.googleapis.com
+	// Errors results to fallback to pilot-agent and istio.
 	kr.CSRSigner, err = NewCASCertProvider("projects/"+kr.ProjectId+
 			"/locations/"+kr.Region()+"/caPools/mesh", ol)
 	
