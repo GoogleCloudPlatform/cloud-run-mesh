@@ -173,34 +173,6 @@ func (td *TdSidecarEnv) getIPTablesInterceptionEnvVars() []string {
 	return envs
 }
 
-func (td *TdSidecarEnv) logLevel() string {
-	return td.LogLevel
-}
-
-func (td *TdSidecarEnv) envoyPort() string {
-	return td.EnvoyPort
-}
-
-func (td *TdSidecarEnv) envoyAdminPort() string {
-	return td.EnvoyAdminPort
-}
-
-func (td *TdSidecarEnv) projectNumber() string {
-	return td.ProjectNumber
-}
-
-func (td *TdSidecarEnv) networkName() string {
-	return td.NetworkName
-}
-
-func (td *TdSidecarEnv) serviceCIDR() string {
-	return td.ServiceCidr
-}
-
-func (td *TdSidecarEnv) envoyLogDirectory() string {
-	return td.LogDirectory
-}
-
 // Reads bootstrap template found in absolute path templatePath and replaces strings.
 func (td *TdSidecarEnv) prepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
 	data, err := os.ReadFile(templatePath)

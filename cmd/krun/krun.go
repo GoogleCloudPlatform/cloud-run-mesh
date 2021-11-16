@@ -135,14 +135,14 @@ func main() {
 func startTd() {
 	kr := mesh.New()
 	kr.PrepareTrafficDirectorEnv()
-	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.GetTrfficDirectorProjectNumber(), kr.GetTrafficDirectorNetworkName())
+	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.TdSidecarEnv.ProjectNumber, kr.TdSidecarEnv.NetworkName)
 
 	// Now we run TD start up script for IP tables interception and envoy startup.
 	if err := kr.StartEnvoy(); err != nil {
 		log.Fatal("Failed to start envoy ", err)
 	}
 
-	adminConsoleAddr := fmt.Sprintf("127.0.0.1:%s", kr.GetTDAdminConsolePort())
+	adminConsoleAddr := fmt.Sprintf("127.0.0.1:%s", kr.TdSidecarEnv.EnvoyAdminPort)
 	if err := kr.WaitEnvoyReady(adminConsoleAddr, 10*time.Second); err != nil {
 		log.Fatal("Failed to wait for envoy to start: ", err)
 	}

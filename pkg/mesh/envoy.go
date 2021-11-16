@@ -34,7 +34,7 @@ const envoyGUID = 1337
 func (kr *KRun) envoyCommand() *exec.Cmd {
 	return exec.Command("/usr/local/bin/envoy",
 		"--config-path", fmt.Sprintf("%s/bootstrap.yaml", kr.TdSidecarEnv.PackageDirectory),
-		"--log-level", kr.GetTrafficDirectorLogLevel(),
+		"--log-level", kr.TdSidecarEnv.LogLevel,
 		"--log-path", "/var/log/envoy/envoy.log",
 		"--allow-unknown-static-fields",
 	)
@@ -60,8 +60,8 @@ func (kr *KRun) StartEnvoy() error {
 		return err
 	}
 	log.Println("TD bootstrap ready")
-	os.MkdirAll(kr.GetEnvoyLogDirectory(), 0666)
-	os.Chown(kr.GetEnvoyLogDirectory(), envoyUID, envoyGUID)
+	os.MkdirAll(kr.TdSidecarEnv.LogDirectory, 0666)
+	os.Chown(kr.TdSidecarEnv.LogDirectory, envoyUID, envoyGUID)
 
 	cmd := kr.envoyCommand()
 
@@ -113,8 +113,8 @@ func (kr *KRun) iptablesCommand() *exec.Cmd {
 	}
 	return exec.Command(fmt.Sprintf("%s/iptables.sh", kr.TdSidecarEnv.PackageDirectory),
 		"-x", "169.254.169.254/32", // metadata_server_cidr
-		"-i", kr.GetServiceCIDR(),
-		"-p", kr.GetEnvoyPort(),
+		"-i", kr.TdSidecarEnv.ServiceCidr,
+		"-p", kr.TdSidecarEnv.EnvoyPort,
 		"-u", strconv.Itoa(envoyUID),
 	)
 }

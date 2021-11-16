@@ -98,16 +98,16 @@ type KRun struct {
 
 	// ProjectId is the name of the project where config cluster is running
 	// The workload may be in a different project.
-	ProjectId       string
+	ProjectId string
 
 	// ProjectNumber is used for GCP federated token exchange.
 	// It is populated from the mesh-env PROJECT_NUMBER setting to construct the federated P4SA
 	//    "service-" + s.kr.ProjectNumber + "@gcp-sa-meshdataplane.iam.gserviceaccount.com"
 	// This is used for MeshCA and Stackdriver access.
-	ProjectNumber   string
+	ProjectNumber string
 
 	// Deprecated - ClusterAddress used instead.
-	ClusterName     string
+	ClusterName string
 
 	// TODO: replace with Workloadlocation. Config cluster location not used.
 	ClusterLocation string
@@ -141,7 +141,7 @@ type KRun struct {
 	// - https://.... - regular URL, using system certificates. Will return the mesh env directly.
 	// - file://... - load from file
 	// - gke://CONFIG_PROJECT_ID[/CLUSTER_LOCATION/CLUSTER_NAME/WORKLOAD_NAMESPACE] - GKE Container API.
-	MeshAddr   *url.URL
+	MeshAddr *url.URL
 
 	// Config cluster address - https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s
 	// Used in the identitynamespace config for STS exchange.
@@ -156,10 +156,10 @@ type KRun struct {
 // New creates an uninitialized mesh launcher.
 func New() *KRun {
 	kr := &KRun{
-		StartTime:   time.Now(),
-		Aud2File:    map[string]string{},
-		Labels:      map[string]string{},
-		ProxyConfig: &ProxyConfig{},
+		StartTime:    time.Now(),
+		Aud2File:     map[string]string{},
+		Labels:       map[string]string{},
+		ProxyConfig:  &ProxyConfig{},
 		TdSidecarEnv: NewTdSidecarEnv(),
 	}
 	return kr
@@ -286,7 +286,6 @@ func (kr *KRun) RefreshAndSaveTokens() {
 	}
 	time.AfterFunc(30*time.Minute, kr.RefreshAndSaveTokens)
 }
-
 
 // FindXDSAddr will determine which discovery address to use.
 //
@@ -458,35 +457,6 @@ func (kr *KRun) PrepareTrafficDirectorEnv() {
 	kr.TdSidecarEnv.prepare()
 }
 
-func (kr *KRun) GetTrafficDirectorLogLevel() string {
-	return kr.TdSidecarEnv.logLevel()
-}
-
-func (kr *KRun) GetEnvoyPort() string {
-	return kr.TdSidecarEnv.envoyPort()
-}
-
-// GetTDAdminConsolePort gets the admin port on which traffic director's envoy is listening on.
-func (kr *KRun) GetTDAdminConsolePort() string {
-	return kr.TdSidecarEnv.envoyAdminPort()
-}
-
-func (kr *KRun) GetTrfficDirectorProjectNumber() string {
-	return kr.TdSidecarEnv.projectNumber()
-}
-
-func (kr *KRun) GetTrafficDirectorNetworkName() string {
-	return kr.TdSidecarEnv.networkName()
-}
-
-func (kr *KRun) GetServiceCIDR() string {
-	return kr.TdSidecarEnv.serviceCIDR()
-}
-
 func (kr *KRun) PrepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
 	return kr.TdSidecarEnv.prepareTrafficDirectorBootstrap(templatePath, outputPath)
-}
-
-func (kr *KRun) GetEnvoyLogDirectory() string {
-	return kr.TdSidecarEnv.envoyLogDirectory()
 }
