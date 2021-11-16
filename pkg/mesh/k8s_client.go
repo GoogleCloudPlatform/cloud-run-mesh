@@ -18,7 +18,9 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 
@@ -127,6 +129,16 @@ func (kr *KRun) initInCluster() error {
 // Once the cluster is found, additional config can be loaded from
 // the cluster.
 func (kr *KRun) LoadConfig(ctx context.Context) error {
+	mesh := kr.Config("MESH", "")
+	if mesh != "" {
+		meshURL, err := url.Parse(mesh)
+		if err != nil {
+			return fmt.Errorf("Invalid meshURL %v %v", mesh, err)
+		}
+		kr.MeshAddr = meshURL
+	}
+	// TODO: if meshURL is set and is file:// or gke:// - use it directly
+
 	err := kr.K8SClient(ctx)
 	if err != nil {
 		return err
@@ -144,6 +156,10 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 		}
 	}
 
+	if kr.ClusterAddress == "" {
+		kr.ClusterAddress = fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
+			kr.ProjectId, kr.ClusterLocation, kr.ClusterName)
+	}
 	return err
 }
 

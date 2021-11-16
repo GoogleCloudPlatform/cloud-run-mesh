@@ -25,15 +25,20 @@ spec:
   template:
     metadata:
       annotations:
+        # If Istio is installed in cluster and injection enabled - use the gateway template.
+        # This deployment also works injection-less.
         inject.istio.io/templates: gateway
+        # If workload certs are enabled, will be configured. The deployment will detect the presence of the files,
+        # may load the config to identify the pool (initially we'll use a hard-coded default name)
+        # Must also configure cas_template.
+        security.cloud.google.com/use-workload-certificates: ""
       labels:
         app: hgate
         istio: hgate
         version: v2.2
         # Turns off injection, regardless of namespace label.
-        # The docker image extends istio-proxy and includes envoy, knows how to start
-        # without injection.
-        #sidecar.istio.io/inject: "false"
+        # The docker image extends istio-proxy and includes envoy, knows how to start without injection.
+        sidecar.istio.io/inject: "false"
 
         # Use default injection. If Istio is not installed in the cluster, will
         # auto-detect.
@@ -46,10 +51,6 @@ spec:
           image: gcr.io/wlhe-cr/krun/gate:main
           imagePullPolicy: Always
           env:
-#            - name: CA_ADDR
-#              value: istiod.istio-system.svc:15012
-#            - name: XDS_ADDR
-#              value: istiod.istio-system.svc:15012
 #            - name: ENVOY_LOG_LEVEL
 #              value: debug,config:warn,main:warn,upstream:debug
             # The launcher can't usually auto-detect the namespace, except from

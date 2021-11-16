@@ -34,7 +34,7 @@ import (
 // However it does not depend directly on Istio or XDS - the certificates can be mounted or generated with
 // krun+pilot-agent.
 func main() {
-	kr := mesh.New("")
+	kr := mesh.New()
 
 	kr.VendorInit = gcp.InitGCP
 

@@ -31,14 +31,11 @@ import (
 // TestSNIGate is e2e, requires a k8s connection (kube config is fine)
 // Also requires certificates to be created - will not start agent or envoy
 func TestSNIGate(t *testing.T) {
-	gateK8S := mesh.New("")
+	gateK8S := mesh.New()
 	gateK8S.XDSAddr = "-" // prevent pilot-agent from starting
 	gateK8S.BaseDir = "../../"
 
 	gate := New(gateK8S)
-
-	// By default Auth is created using pilot-agent generated certs.
-	gate.Auth = hbone.NewAuth()
 
 	err := gate.InitSNIGate(context.Background(), ":0", ":0")
 	if err != nil {
@@ -47,7 +44,7 @@ func TestSNIGate(t *testing.T) {
 	t.Log("Gate listening on ", gate.SNIListener.Addr())
 
 	t.Run("client", func(t *testing.T) {
-		aliceMesh := mesh.New("")
+		aliceMesh := mesh.New()
 		aliceMesh.XDSAddr = "-" // prevent pilot-agent from starting
 		aliceMesh.BaseDir = "../../"
 
@@ -59,12 +56,7 @@ func TestSNIGate(t *testing.T) {
 			t.Skip("Skipping test, no k8s environment")
 		}
 
-		auth, err := hbone.NewAuthFromDir(aliceMesh.BaseDir + "var/run/secrets/istio.io/")
-		if err != nil {
-			t.Skip("Skipping test, missing certificates.")
-		}
-
-		alice := hbone.New(auth)
+		alice := hbone.New()
 
 		addr := aliceMesh.MeshConnectorAddr
 		if addr == "" {
@@ -81,7 +73,7 @@ func TestSNIGate(t *testing.T) {
 			if !aliceMesh.InCluster {
 				t.Skip("Only in-cluster")
 			}
-			aliceToFortio := alice.NewClient("fortio-cr.fortio.svc.cluster.local:8080")
+			aliceToFortio := alice.NewClient()
 
 			// Create an endpoint for the gate.
 			ep := aliceToFortio.NewEndpoint("https://" + addr + ":15443/_hbone/tcp")

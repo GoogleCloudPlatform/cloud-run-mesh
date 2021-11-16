@@ -29,16 +29,14 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// Client for mTLS-over-HTTP/2.
+// Primarily for testing and for the CLI debug helper.
 type HBoneClient struct {
-	ServiceAddr string
-
-	Endpoints []*Endpoint
 	hb        *HBone
 }
 
 func (c HBoneClient) NewEndpoint(url string) *Endpoint {
 	ep := c.hb.NewEndpoint(url)
-	c.Endpoints = append(c.Endpoints, ep)
 	return ep
 }
 
@@ -46,17 +44,8 @@ func (c HBoneClient) NewEndpoint(url string) *Endpoint {
 type Endpoint struct {
 	hb *HBone
 
-	// Service addr - using the service name.
-	ServiceAddr string
-
 	// URL used to reach the H2 endpoint providing the proxy.
 	URL string
-
-	// MTLSConfig is a custom config to use for the inner connection - will enable mTLS over H2
-	// If nil, it's regular TCP over H2.
-	MTLSConfig *tls.Config
-
-	ExternalMTLSConfig *tls.Config
 
 	// SNI name to use - defaults to service name
 	SNI string
@@ -72,13 +61,12 @@ type Endpoint struct {
 	// similar with an egress gateway.
 	H2Gate string
 
-	// TODO: multiple per endpoint
-	tlsCon *tls.Conn
+	tlsCon net.Conn
 	rt     *http2.ClientConn // http.RoundTripper
 }
 
-func (hb *HBone) NewClient(service string) *HBoneClient {
-	return &HBoneClient{hb: hb, ServiceAddr: service}
+func (hb *HBone) NewClient() *HBoneClient {
+	return &HBoneClient{hb: hb}
 }
 
 // NewEndpoint creates a client for connecting to a specific service:port
@@ -107,41 +95,9 @@ func (hb *HBone) NewEndpoint(urlOrHost string) *Endpoint {
 
 // Proxy will proxy in/out (plain text) to a remote service, using mTLS tunnel over H2 POST.
 // used for testing.
-func (hb *HBone) Proxy(svc string, hbURL string, stdin io.ReadCloser, stdout io.WriteCloser, innerTLS *tls.Config) error {
+func (hb *HBone) Proxy(svc string, hbURL string, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	c := hb.NewEndpoint(hbURL)
-	c.MTLSConfig = innerTLS
 	return c.Proxy(context.Background(), stdin, stdout)
-}
-
-func (hc *Endpoint) dialTLS(ctx context.Context, addr string) (*tls.Conn, error) {
-	d := net.Dialer{} // TODO: customizations
-
-	conn, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-
-	// Using the low-level interface, to keep control over TLS.
-	conf := hc.hb.Auth.MeshTLSConfig.Clone()
-
-	if hc.SNI != "" {
-		conf.ServerName = hc.SNI
-	} else {
-		host, _, _ := net.SplitHostPort(addr)
-		conf.ServerName = host
-	}
-
-	// TODO: how to keep it alive and detect when it gets closed ?
-	// - add Close method to client for explicit close.
-
-	tlsCon := tls.Client(conn, conf)
-
-	err = HandshakeTimeout(tlsCon, hc.hb.HandsahakeTimeout, conn)
-	if err != nil {
-		return nil, err
-	}
-
-	return tlsCon, nil
 }
 
 func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteCloser) error {
@@ -200,22 +156,36 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		}
 		host, port, _ := net.SplitHostPort(h)
 
+		if r.URL.Scheme == "http" {
+			d := &net.Dialer{}
+
+			dialHost := r.URL.Host
+			if port == "" {
+				dialHost = net.JoinHostPort(dialHost, "80")
+			}
+			nConn, err := d.DialContext(ctx, "tcp", dialHost)
+			if err != nil {
+				return err
+			}
+
+			hc.tlsCon = nConn
+
+		} else {
 		// Expect system certificates.
-		if port == "443" || port == "" {
 			d := tls.Dialer{
 				Config: &tls.Config{
 					NextProtos: []string{"h2"},
 				},
 				NetDialer: &net.Dialer{},
 			}
-			h := r.URL.Host
+			dialHost := r.URL.Host
 			if port == "" {
-				h = net.JoinHostPort(h, "443")
+				dialHost = net.JoinHostPort(dialHost, "443")
 			}
 			if hc.H2Gate != "" {
-				h = hc.H2Gate
+				dialHost = hc.H2Gate
 			}
-			nConn, err := d.DialContext(ctx, "tcp", h)
+			nConn, err := d.DialContext(ctx, "tcp", dialHost)
 			if err != nil {
 				return err
 			}
@@ -230,19 +200,8 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 				log.Println("Failed to negotiate h2", tlsCon.ConnectionState().NegotiatedProtocol)
 				return errors.New("invalid ALPN protocol")
 			}
-			hc.tlsCon = tlsCon
-		} else {
-
-			tlsCon, err := hc.dialTLS(ctx, h)
-			if err != nil {
-				return err
-			}
-			// TODO: how to keep it alive and detect when it gets closed ?
-			// - add Close method to client for explicit close.
-			defer tlsCon.Close()
 
 			hc.tlsCon = tlsCon
-			// TODO: check the SANs have been verified by TLSConfig call.
 		}
 
 		rt, err = hc.hb.h2t.NewClientConn(hc.tlsCon)
@@ -253,9 +212,6 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		hc.rt = rt
 	}
 
-	// This might be useful to make sure auth works - but it doesn't seem to help with the deadlock/canceling send.
-	//r.Header.Add("Expect", "100-continue")
-
 	res, err := rt.RoundTrip(r)
 	if err != nil {
 		return err
@@ -265,40 +221,19 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 	ch := make(chan int)
 	var s1, s2 Stream
 
-	if hc.MTLSConfig == nil {
-		s1 = Stream{
-			ID:  "client-o",
-			Dst: o,
-			Src: stdin,
-		}
-		go s1.CopyBuffered(ch, true)
-
-		s2 = Stream{
-			ID:  "client-i",
-			Dst: stdout,
-			Src: res.Body,
-		}
-		s2.CopyBuffered(nil, true)
-	} else {
-		// Do the mTLS handshake for the tunneled connection
-		tlsTun := tls.Client(&HTTPConn{acceptedConn: hc.tlsCon, r: res.Body, w: o}, hc.MTLSConfig)
-		err = HandshakeTimeout(tlsTun, hc.hb.HandsahakeTimeout, nil)
-		if err != nil {
-			return err
-		}
-		log.Println("client-rt tun handshake", tlsTun.ConnectionState())
-		s1 = Stream{
-			Dst: tlsTun,
-			Src: stdin,
-		}
-		go s1.CopyBuffered(ch, true)
-
-		s2 = Stream{
-			Dst: stdout,
-			Src: tlsTun,
-		}
-		s2.CopyBuffered(nil, true)
+	s1 = Stream{
+		ID:  "client-o",
+		Dst: o,
+		Src: stdin,
 	}
+	go s1.CopyBuffered(ch, true)
+
+	s2 = Stream{
+		ID:  "client-i",
+		Dst: stdout,
+		Src: res.Body,
+	}
+	s2.CopyBuffered(nil, true)
 
 	<-ch
 

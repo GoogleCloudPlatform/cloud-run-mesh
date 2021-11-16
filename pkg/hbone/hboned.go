@@ -38,8 +38,6 @@ import (
 //
 // HBone can be used as a client, server or gateway.
 type HBone struct {
-	Auth *Auth
-
 	h2Server *http2.Server
 	Cert     *tls.Certificate
 	rp       *httputil.ReverseProxy
@@ -83,7 +81,7 @@ type HBone struct {
 }
 
 // New creates a new HBone node. It requires a workload identity, including mTLS certificates.
-func New(auth *Auth) *HBone {
+func New() *HBone {
 	// Need to set this to allow timeout on the read header
 	h1 := &http.Transport{
 		ExpectContinueTimeout: 3 * time.Second,
@@ -93,7 +91,6 @@ func New(auth *Auth) *HBone {
 	h2.AllowHTTP = true
 	h2.StrictMaxConcurrentStreams = false
 	hb := &HBone{
-		Auth:      auth,
 		Endpoints: map[string]*Endpoint{},
 		H2R:       map[string]http.RoundTripper{},
 		H2RConn:   map[*http2.ClientConn]string{},
@@ -108,7 +105,7 @@ func New(auth *Auth) *HBone {
 
 		HTTPClientSystem: http.DefaultClient,
 	}
-	hb.h2t.ConnPool = hb
+	//hb.h2t.ConnPool = hb
 	hb.h2Server = &http2.Server{}
 
 	u, _ := url.Parse("http://127.0.0.1:8080")
@@ -134,20 +131,6 @@ type HBoneAcceptedConn struct {
 // Incoming requests for /_hbone/22 will be forwarded to localhost:22, for
 // debugging with ssh.
 //
-
-func (hb *HBone) HandleAcceptedH2(conn net.Conn) {
-	conf := hb.Auth.MeshTLSConfig
-	defer conn.Close()
-	tls := tls.Server(conn, conf)
-
-	// TODO: replace with handshake with context, timeout
-	err := HandshakeTimeout(tls, hb.HandsahakeTimeout, conn)
-	if err != nil {
-		return
-	}
-
-	hb.HandleAcceptedH2C(tls)
-}
 
 func (hac *HBoneAcceptedConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t0 := time.Now()
@@ -191,42 +174,6 @@ func (hac *HBoneAcceptedConn) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	if r.RequestURI == "/_hbone/tcp" {
 		proxyErr = hac.hb.HandleTCPProxy(w, r.Body, hac.hb.TcpAddr)
-		return
-	}
-
-	if r.RequestURI == "/_hbone/mtls" {
-		// Create a stream, used for proxy with caching.
-		conf := hac.hb.Auth.MeshTLSConfig
-
-		tls := tls.Server(&HTTPConn{r: r.Body, w: w, acceptedConn: hac.conn}, conf)
-
-		// TODO: replace with handshake with context
-		err := HandshakeTimeout(tls, hac.hb.HandsahakeTimeout, nil)
-		if err != nil {
-			log.Println("HBD-MTLS: error inner mTLS ", err)
-			return
-		}
-		log.Println("HBD-MTLS:", tls.ConnectionState())
-
-		// TODO: All Istio checks go here. The TLS handshake doesn't check
-		// root cert or anything - this is proof of concept only, to eval
-		// perf.
-
-		// TODO: allow user to customize app port, protocol.
-		// TODO: if protocol is not matching wire protocol, convert.
-		hac.hb.HandleTCPProxy(tls, tls, hac.hb.TcpAddr)
-		//if tls.ConnectionState().NegotiatedProtocol == "h2" {
-		//	// http2 and http expect a net.Listener, and do their own accept()
-		//	hb.proxy.ServeConn(
-		//		tls,
-		//		&http2.ServeConnOpts{
-		//			Handler: http.HandlerFunc(l.ug.H2Handler.httpHandleHboneCHTTP),
-		//			Context: tc.Context(), // associated with the stream, with cancel
-		//		})
-		//} else {
-		//	// HTTP/1.1
-		//	// TODO. Typically we want to upgrade over the wire to H2
-		//}
 		return
 	}
 

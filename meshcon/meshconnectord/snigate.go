@@ -22,11 +22,11 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/compute/metadata"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
-	"golang.org/x/net/http2"
-
 	corev1 "k8s.io/api/core/v1"
 
 	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
@@ -35,8 +35,6 @@ import (
 
 type MeshConnector struct {
 	SNIListener net.Listener
-	H2RListener net.Listener
-	Auth        *hbone.Auth
 	HBone       *hbone.HBone
 	Mesh        *mesh.KRun
 
@@ -76,6 +74,15 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		if err != nil {
 			return err
 		}
+	}
+	// If ProjectNumber used for P4SA not set, attempt to get it from ProjectID and fallback to metadata server
+	if kr.ProjectNumber == "" && kr.ProjectId != "" {
+		kr.ProjectNumber = gcp.ProjectNumber(kr.ProjectId)
+		log.Println("Got project number from GCP API", kr.ProjectNumber)
+	}
+	if kr.ProjectNumber == ""  {
+		// If project Id explicitly set, and not same as what metadata reports - fallback to getting it from GCP
+		kr.ProjectNumber, _ = metadata.NumericProjectID()
 	}
 
 	// Default the XDSAddr for this instance to the service created by the hgate install.
@@ -121,19 +128,7 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		log.Fatal("Failed to start istio agent and envoy", err)
 	}
 
-	// Will use istio-agent created certs for now. WIP: run the
-	// gate without pilot-agent/envoy, will use built-in CA providers.
-	if sg.Auth == nil {
-		auth, err := hbone.NewAuthFromDir(kr.BaseDir + "/var/run/secrets/istio.io/")
-		if err != nil {
-			return err
-		}
-
-		// All namespaces are allowed to connect.
-		auth.AllowedNamespaces = []string{"*"}
-		sg.Auth = auth
-	}
-	h2r := hbone.New(sg.Auth)
+	h2r := hbone.New()
 	sg.HBone = h2r
 	stsc, err := sts.NewSTS(kr)
 	if err != nil {
@@ -165,30 +160,14 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		}
 
 		base := remoteService + ".a.run.app"
-		h2c := h2r.NewClient(sni)
-		//ep := h2c.NewEndpoint("https://" + base + "/_hbone/mtls")
+		h2c := h2r.NewClient()
 		ep := h2c.NewEndpoint("https://" + base + "/_hbone/15003")
 		ep.SNI = base
 
 		return ep
 	}
 
-	h2r.H2RCallback = func(s string, conn *http2.ClientConn) {
-		if s == "" {
-			return
-		}
-		log.Println("H2R connection event", s, conn)
-
-		// TODO: save a WorkloadInstance of EndpontSlice
-
-	}
-
 	sg.SNIListener, err = hbone.ListenAndServeTCP(sniPort, h2r.HandleSNIConn)
-	if err != nil {
-		return err
-	}
-
-	sg.H2RListener, err = hbone.ListenAndServeTCP(h2rPort, h2r.HandlerH2RConn)
 	if err != nil {
 		return err
 	}

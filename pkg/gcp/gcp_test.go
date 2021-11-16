@@ -16,13 +16,14 @@ package gcp
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -32,81 +33,68 @@ func TestK8S(t *testing.T) {
 	os.Mkdir("../../out", 0775)
 	os.Chdir("../../out")
 
-	// ADC or runner having permissions are required
-	projectID := os.Getenv("PROJECT_ID")
-	if projectID == "" {
-		t.Skip("Missing PROJECT_ID")
-		return
-	}
 	// For the entire test
-	ctx, cf := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cf := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cf()
 
-	kr := mesh.New("")
-	cl, err := AllClusters(ctx, kr, "", "mesh_id", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cl) == 0 {
-		t.Fatal("No ASM clusters")
-	}
-	if kr.ProjectId != projectID {
-		t.Error("Project ID initialization", kr.ProjectId, projectID)
-	}
-	testCluster := cl[0]
+	kr := mesh.New()
+	configFromEnvAndMD(ctx, kr)
+	// ADC or runner having permissions are required
 
-	// Run the tests on the first found cluster, unless the test is run with env variables to select a specific
-	// location and cluster name.
+	projectID := kr.ProjectId
+	if projectID == "" {
+		// Attempt to use the kubeconfig
+		kr1 := mesh.New()
+		kr1.LoadConfig(ctx)
+		if kr1.ProjectId == "" {
+			t.Skip("Missing PROJECT_ID")
+			return
+		}
+		kr.ProjectId = kr1.ProjectId
+	}
 
-	t.Run("all_clusters", func(t *testing.T) {
+	t.Run("all-any", func(t *testing.T) {
 		cl, err := AllClusters(ctx, kr, "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(cl) == 0 {
-			t.Fatal("No clusters")
+			t.Fatal("No ASM clusters")
+		}
+	})
+	t.Run("all-mesh-id", func(t *testing.T) {
+		cl, err := AllClusters(ctx, kr, "", "mesh_id", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cl) == 0 {
+			t.Fatal("No ASM clusters")
 		}
 	})
 
-	// WIP: using the hub, for multi-project
-	t.Run("hub", func(t *testing.T) {
-		kchub, err := AllHub(ctx, kr)
+	cl, err := AllClusters(ctx, kr, "", "mesh_id", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cl) == 0 {
+		cl, err = AllClusters(ctx, kr, "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, kh := range kchub {
-			t.Log("Hub:", kh.ClusterName, kh.ClusterLocation)
-		}
-		if len(kchub) == 0 {
-			t.Skip("No hub clusters registered")
-		}
+	}
+	if len(cl) == 0 {
+		t.Fatal("No clusters in " + kr.ProjectId)
+	}
 
-		c0 := kchub[0]
-		rc, err := restConfig(c0.KubeConfig)
-		if err != nil {
-			t.Fatal(err)
-		}
-		client, err := kubernetes.NewForConfig(rc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = checkClient(client)
-		if err != nil {
-			if se, ok := err.(*errors.StatusError); ok {
-				if se.Status().Reason == "Forbidden" {
-					t.Skip("GKE Connect not authorized")
-				}
-			}
-			// Hub requires special setup - just log for now
-			t.Log(err)
-		}
+	testCluster := cl[0]
 
-	})
+	// Run the tests on the first found cluster, unless the test is run with env variables to select a specific
+	// location and cluster name.
 
 	t.Run("gke", func(t *testing.T) {
 		// This is the main function for the package - given a KRun object, initialize the K8S Client based
 		// on settings and GKE API result.
-		kr1 := mesh.New("")
+		kr1 := mesh.New()
 		kr1.ProjectId = kr.ProjectId
 		kr1.ClusterName = testCluster.ClusterName
 		kr1.ClusterLocation = testCluster.ClusterLocation
@@ -123,8 +111,44 @@ func TestK8S(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-
 	})
+
+	t.Run("configCluster", func(t *testing.T) {
+		kr1 := mesh.New()
+		kr1.MeshAddr, _ = url.Parse("gke://" + kr.ProjectId)
+
+		err = InitGCP(context.Background(), kr1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kr1.Client == nil {
+			t.Fatal("No client")
+		}
+
+		err = checkClient(kr1.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("configClusterExplicit", func(t *testing.T) {
+		kr1 := mesh.New()
+		kr1.MeshAddr, _ = url.Parse(fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s", kr.ProjectId, kr.ClusterLocation, kr.ClusterName))
+
+		err = InitGCP(context.Background(), kr1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kr1.Client == nil {
+			t.Fatal("No client")
+		}
+
+		err = checkClient(kr1.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
 }
 
 func checkClient(kc *kubernetes.Clientset) error {
