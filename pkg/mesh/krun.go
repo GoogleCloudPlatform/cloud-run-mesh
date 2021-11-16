@@ -148,6 +148,9 @@ type KRun struct {
 	ClusterAddress string
 
 	InstanceID string
+
+	// Holds Traffic Director sidecar environment.
+	TdSidecarEnv *TdSidecarEnv
 }
 
 // New creates an uninitialized mesh launcher.
@@ -157,6 +160,7 @@ func New() *KRun {
 		Aud2File:    map[string]string{},
 		Labels:      map[string]string{},
 		ProxyConfig: &ProxyConfig{},
+		TdSidecarEnv: NewTdSidecarEnv(),
 	}
 	return kr
 }
@@ -174,7 +178,6 @@ func (kr *KRun) Region() string {
 // to get the initial configuration for Istio and KRun.
 //
 func (kr *KRun) initFromEnv() {
-
 	if kr.KSA == "" {
 		// Same environment used for VMs
 		kr.KSA = os.Getenv("WORKLOAD_SERVICE_ACCOUNT")
@@ -443,4 +446,47 @@ func (kr *KRun) Signals() {
 		}
 	}()
 
+}
+
+// GetTrafficDirectorIPTablesEnvVars returns env vars needed for iptables interception for TD
+func (kr *KRun) GetTrafficDirectorIPTablesEnvVars() []string {
+	return kr.TdSidecarEnv.getIPTablesInterceptionEnvVars()
+}
+
+// PrepareTrafficDirectorEnv prepares traffic director environment
+func (kr *KRun) PrepareTrafficDirectorEnv() {
+	kr.TdSidecarEnv.prepare()
+}
+
+func (kr *KRun) GetTrafficDirectorLogLevel() string {
+	return kr.TdSidecarEnv.logLevel()
+}
+
+func (kr *KRun) GetEnvoyPort() string {
+	return kr.TdSidecarEnv.envoyPort()
+}
+
+// GetTDAdminConsolePort gets the admin port on which traffic director's envoy is listening on.
+func (kr *KRun) GetTDAdminConsolePort() string {
+	return kr.TdSidecarEnv.envoyAdminPort()
+}
+
+func (kr *KRun) GetTrfficDirectorProjectNumber() string {
+	return kr.TdSidecarEnv.projectNumber()
+}
+
+func (kr *KRun) GetTrafficDirectorNetworkName() string {
+	return kr.TdSidecarEnv.networkName()
+}
+
+func (kr *KRun) GetServiceCIDR() string {
+	return kr.TdSidecarEnv.serviceCIDR()
+}
+
+func (kr *KRun) PrepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
+	return kr.TdSidecarEnv.prepareTrafficDirectorBootstrap(templatePath, outputPath)
+}
+
+func (kr *KRun) GetEnvoyLogDirectory() string {
+	return kr.TdSidecarEnv.envoyLogDirectory()
 }
