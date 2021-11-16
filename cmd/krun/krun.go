@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -28,6 +29,13 @@ import (
 var initDebug func(run *mesh.KRun)
 
 func main() {
+	// If ENABLE_TRAFFIC_DIRECTOR env variable is set then only set up necessary
+	// to conenct to Traffic Director control plane will be taken.
+	if os.Getenv("ENABLE_TRAFFIC_DIRECTOR") != "" {
+		startTd()
+		select {}
+	}
+
 	kr := mesh.New()
 
 	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
@@ -60,7 +68,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Failed to start the mesh agent ", err)
 		}
-		err = kr.WaitHTTPReady( "http://127.0.0.1:15021/healthz/ready", 10 * time.Second)
+		err = kr.WaitHTTPReady("http://127.0.0.1:15021/healthz/ready", 10*time.Second)
 		if err != nil {
 			log.Fatal("Mesh agent not ready ", err)
 		}
@@ -122,4 +130,22 @@ func main() {
 	}
 
 	select {}
+}
+
+func startTd() {
+	kr := mesh.New()
+	kr.PrepareTrafficDirectorEnv()
+	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.GetTrfficDirectorProjectNumber(), kr.GetTrafficDirectorNetworkName())
+
+	// Now we run TD start up script for IP tables interception and envoy startup.
+	if err := kr.StartEnvoy(); err != nil {
+		log.Fatal("Failed to start envoy ", err)
+	}
+
+	adminConsoleAddr := fmt.Sprintf("127.0.0.1:%s", kr.GetTDAdminConsolePort())
+	if err := kr.WaitEnvoyReady(adminConsoleAddr, 10*time.Second); err != nil {
+		log.Fatal("Failed to wait for envoy to start: ", err)
+	}
+
+	kr.StartApp()
 }
