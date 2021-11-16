@@ -121,6 +121,26 @@ The connector MUST be on the same VPC network with the GKE cluster and configure
 
 If your GKE cluster has enabled control plane authorized networks you must add the serverless connector CIDR range as an authorized network.
 
+
+### Multi-project 
+
+If you want to run the CloudRun service in a separate project, to better isolate the permissions:
+
+- the cluster and the mesh connector will all run in the CONFIG_PROJECT_ID. 
+- it is recommended (but not required) to have 1 config cluster per region.
+- one or more shared VPCs should be used, in the CONFIG_PROJECT_ID 
+- the servlerless connector will also run in the CONFIG_PROJECT_ID, associated with each shared VPC
+
+The setup steps will allow the project used by CloudRun access to the VPC and serverless connector, as well as 
+viewer (list cluster and connect) to the config clusters in CONFIG_PROJECT_ID, just like in single project config.
+
+It is strongly recommended for the CloudRun project to be associated with a single K8S namespace. 
+We plan to use part of the project ID as the default namespace, if the WORKLOAD_NAMESPACE is not 
+explicitly configured. This simplifies the setup and reduces the risks, both namespace and projects
+are intended to isolate service accounts and permissions. 
+
+The workloads will act as K8S service account in the mapped K8s namespace.
+
 ## Namespace Setup
 
 After installing you can only configure new services for namespaces using namespace-level permissions in K8s.
