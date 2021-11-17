@@ -136,7 +136,7 @@ func startTd(kr *mesh.KRun) {
 	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.ProjectNumber, kr.NetworkName)
 
 	if os.Getuid() != 0 {
-		log.Fatal("envoy for TD only supports running as root")
+		log.Fatal("td only supports running as root")
 	}
 
 	log.Println("Starting iptables")

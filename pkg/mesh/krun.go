@@ -218,7 +218,6 @@ func (kr *KRun) InitForTDFromMeshEnv() bool {
 		return false
 	}
 
-	log.Println("MESH TD regex created", splits[1], splits[2])
 	if len(splits[1]) != 0 {
 		kr.ProjectNumber = splits[1]
 	}

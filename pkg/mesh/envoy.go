@@ -44,7 +44,7 @@ func (kr *KRun) envoyCommand() *exec.Cmd {
 // runs envoy.
 func (kr *KRun) StartEnvoy() error {
 	if os.Getuid() != 0 {
-		return errors.New("envoy for TD only supports running as root")
+		return errors.New("td only supports running as root")
 	}
 
 	// Prepare envoy bootstrap

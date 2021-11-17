@@ -15,6 +15,7 @@
 package mesh
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -74,11 +75,11 @@ func NewTdSidecarEnv() *TdSidecarEnv {
 func (td *TdSidecarEnv) fetchZone() (string, error) {
 	zone, err := metadata.Get("instance/zone")
 	if err != nil {
-		return "", fmt.Errorf("could not determine zone from metadata server: ", err)
+		return "", fmt.Errorf("could not determine zone from metadata server: %s", err)
 	}
 	splits := strings.SplitAfter(zone, "/zones/")
 	if len(splits) != 2 {
-		return "", fmt.Errorf("could not determine zone from metadata server: ", err)
+		return "", fmt.Errorf("could not determine zone from metadata server: %s", err)
 	}
 	return splits[1], nil
 }
@@ -86,7 +87,7 @@ func (td *TdSidecarEnv) fetchZone() (string, error) {
 func (td *TdSidecarEnv) fetchProjectNumber() (string, error) {
 	projectNumber, err := metadata.Get("project/numeric-project-id")
 	if err != nil {
-		return "", fmt.Errorf("could not determine project number from metadata server: ", err)
+		return "", fmt.Errorf("could not determine project number from metadata server: %s", err)
 	}
 	return projectNumber, nil
 }
@@ -99,6 +100,9 @@ func (td *TdSidecarEnv) fetchNodeID() (string, error) {
 	ips, ipErr := net.LookupIP(hostName)
 	if ipErr != nil {
 		return "", ipErr
+	}
+	if len(ips) == 0 {
+		return "", errors.New("empty IP for host when fetching TD Node Id")
 	}
 	return fmt.Sprintf("%s~%s", uuid.New().String(), ips[0].String()), nil
 }
