@@ -29,7 +29,7 @@ import (
 )
 
 const envoyUID = 1337
-const envoyGUID = 1337
+const envoyGID = 1337
 
 func (kr *KRun) envoyCommand() *exec.Cmd {
 	return exec.Command("/usr/local/bin/envoy",
@@ -47,12 +47,6 @@ func (kr *KRun) StartEnvoy() error {
 		return errors.New("envoy for TD only supports running as root")
 	}
 
-	log.Println("Starting iptables")
-	if err := kr.StartIPTablesInterception(); err != nil {
-		return err
-	}
-	log.Println("Finished iptables")
-
 	// Prepare envoy bootstrap
 	if err := kr.PrepareTrafficDirectorBootstrap(
 		fmt.Sprintf("%s/bootstrap_template.yaml", kr.TdSidecarEnv.PackageDirectory),
@@ -61,14 +55,14 @@ func (kr *KRun) StartEnvoy() error {
 	}
 	log.Println("TD bootstrap ready")
 	os.MkdirAll(kr.TdSidecarEnv.LogDirectory, 0666)
-	os.Chown(kr.TdSidecarEnv.LogDirectory, envoyUID, envoyGUID)
+	os.Chown(kr.TdSidecarEnv.LogDirectory, envoyUID, envoyGID)
 
 	cmd := kr.envoyCommand()
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{
 		Uid: envoyUID,
-		Gid: envoyGUID,
+		Gid: envoyGID,
 	}
 
 	var stdout io.ReadCloser
@@ -76,10 +70,10 @@ func (kr *KRun) StartEnvoy() error {
 	if err != nil {
 		log.Println("Error opening pty: ", err)
 		stdout, _ = cmd.StdoutPipe()
-		os.Stdout.Chown(envoyUID, envoyGUID)
+		os.Stdout.Chown(envoyUID, envoyGID)
 	} else {
 		cmd.Stdout = tty
-		if err = tty.Chown(envoyUID, envoyGUID); err != nil {
+		if err = tty.Chown(envoyUID, envoyGID); err != nil {
 			log.Println("Error chown: ", err)
 		}
 		stdout = pty

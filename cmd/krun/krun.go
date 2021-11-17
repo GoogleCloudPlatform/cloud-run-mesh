@@ -137,6 +137,16 @@ func startTd() {
 	kr.PrepareTrafficDirectorEnv()
 	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.TdSidecarEnv.ProjectNumber, kr.TdSidecarEnv.NetworkName)
 
+	if os.Getuid() != 0 {
+		log.Fatal("envoy for TD only supports running as root")
+	}
+
+	log.Println("Starting iptables")
+	if err := kr.StartIPTablesInterception(); err != nil {
+		log.Fatal("Iptables interception failed: ", err)
+	}
+	log.Println("Finished iptables")
+
 	// Now we run TD start up script for IP tables interception and envoy startup.
 	if err := kr.StartEnvoy(); err != nil {
 		log.Fatal("Failed to start envoy ", err)

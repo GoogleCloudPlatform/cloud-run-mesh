@@ -88,21 +88,6 @@ func (td *TdSidecarEnv) loadFromEnv() {
 	if present {
 		td.ProjectNumber = env
 	}
-
-	env, present = os.LookupEnv("SERVICE_CIDR")
-	if present {
-		td.ServiceCidr = env
-	}
-
-	env, present = os.LookupEnv("ENVOY_PORT")
-	if present {
-		td.EnvoyPort = env
-	}
-
-	env, present = os.LookupEnv("ENVOY_ADMIN_PORT")
-	if present {
-		td.EnvoyAdminPort = env
-	}
 }
 
 // Currently zone/region is loaded for the cloud run instance using the metadata server.
