@@ -243,7 +243,7 @@ gcloud alpha run deploy ${CLOUDRUN_SERVICE} \
           --use-http2 \
           --port 15009 \
           --image ${IMAGE} \
-          --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+          --vpc-connector projects/${CONFIG_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
          --set-env-vars="CLUSTER_NAME=${CLUSTER_NAME}" \
          --set-env-vars="CLUSTER_LOCATION=${CLUSTER_LOCATION}" \
          --set-env-vars="PROJECT_ID=${CONFIG_PROJECT_ID}"
