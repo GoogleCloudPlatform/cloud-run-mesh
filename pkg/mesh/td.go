@@ -16,7 +16,6 @@ package mesh
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strconv"
@@ -29,11 +28,6 @@ import (
 // TDSidecarEnv contains environment files that controls how an envoy proxy will be
 // set up and interact with Traffic Director control plane.
 type TdSidecarEnv struct {
-	// Project Number where Traffic Director resources are configured.
-	ProjectNumber string
-	// Network Name for which the configurations will be requested.
-	// This is the VPC network name referenced in the forwarding rule.
-	NetworkName string
 	// List of comma seperated IP ranges that will have their traffic intercepted
 	// and redirected to Envoy. Set it to '*' to intercept all traffic.
 	ServiceCidr string
@@ -64,7 +58,6 @@ type TdSidecarEnv struct {
 // NewTdSidecarEnv sets up TdSideCarEnv with defaults.
 func NewTdSidecarEnv() *TdSidecarEnv {
 	return &TdSidecarEnv{
-		NetworkName:      "default",
 		ServiceCidr:      "*",
 		EnvoyPort:        "15001",
 		EnvoyAdminPort:   "15000",
@@ -74,19 +67,6 @@ func NewTdSidecarEnv() *TdSidecarEnv {
 		EnvoyDnsPort:     "15053",
 		XdsServerCert:    "/etc/ssl/certs/ca-certificates.crt",
 		PackageDirectory: "/td_resources",
-	}
-}
-
-// These for now are the possible variables that a customer can configure.
-func (td *TdSidecarEnv) loadFromEnv() {
-	env, present := os.LookupEnv("VPC_NETWORK_NAME")
-	if present {
-		td.NetworkName = env
-	}
-
-	env, present = os.LookupEnv("GCP_PROJECT_NUMBER")
-	if present {
-		td.ProjectNumber = env
 	}
 }
 
@@ -123,32 +103,6 @@ func (td *TdSidecarEnv) fetchNodeID() (string, error) {
 	return fmt.Sprintf("%s~%s", uuid.New().String(), ips[0].String()), nil
 }
 
-// Prepare TdSidecarEnv by using Metadata server and environment variables.
-func (td *TdSidecarEnv) prepare() {
-	// We use the project number that this cloud run service is running under as a default.
-	if projectNumber, err := td.fetchProjectNumber(); err != nil {
-		log.Println("Unable to auto-generate project_number.")
-	} else {
-		td.ProjectNumber = projectNumber
-	}
-
-	td.loadFromEnv()
-
-	if nodeID, err := td.fetchNodeID(); err != nil {
-		td.NodeID = fmt.Sprintf("%s~%s", uuid.New().String(), "127.0.0.1")
-		log.Println("Unable to generate proper nodeID, using: ", td.NodeID)
-	} else {
-		td.NodeID = nodeID
-	}
-
-	if zone, err := td.fetchZone(); err != nil {
-		td.EnvoyZone = "cloud-run-cluster"
-		log.Println("Unable to generate proper zone info, using: ", td.EnvoyZone)
-	} else {
-		td.EnvoyZone = zone
-	}
-}
-
 func (td *TdSidecarEnv) getIPTablesInterceptionEnvVars() []string {
 	envs := []string{
 		"TRAFFIC_DIRECTOR_GCE_VM_DEPLOYMENT_OVERRIDE=true",
@@ -158,22 +112,21 @@ func (td *TdSidecarEnv) getIPTablesInterceptionEnvVars() []string {
 	return envs
 }
 
-// Reads bootstrap template found in absolute path templatePath and replaces strings.
-func (td *TdSidecarEnv) prepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
+func (kr *KRun) prepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
 	data, err := os.ReadFile(templatePath)
 	if err != nil {
 		return err
 	}
 
 	template := string(data)
-	template = strings.ReplaceAll(template, "ENVOY_NODE_ID", td.NodeID)
-	template = strings.ReplaceAll(template, "ENVOY_ZONE", td.EnvoyZone)
-	template = strings.ReplaceAll(template, "VPC_NETWORK_NAME", td.NetworkName)
-	template = strings.ReplaceAll(template, "CONFIG_PROJECT_NUMBER", td.ProjectNumber)
-	template = strings.ReplaceAll(template, "ENVOY_PORT", td.EnvoyPort)
-	template = strings.ReplaceAll(template, "ENVOY_ADMIN_PORT", td.EnvoyAdminPort)
-	template = strings.ReplaceAll(template, "XDS_SERVER_CERT", td.XdsServerCert)
-	template = strings.ReplaceAll(template, "TRACING_ENABLED", strconv.FormatBool(td.TracingEnabled))
+	template = strings.ReplaceAll(template, "ENVOY_NODE_ID", kr.TdSidecarEnv.NodeID)
+	template = strings.ReplaceAll(template, "ENVOY_ZONE", kr.TdSidecarEnv.EnvoyZone)
+	template = strings.ReplaceAll(template, "VPC_NETWORK_NAME", kr.NetworkName)
+	template = strings.ReplaceAll(template, "CONFIG_PROJECT_NUMBER", kr.ProjectNumber)
+	template = strings.ReplaceAll(template, "ENVOY_PORT", kr.TdSidecarEnv.EnvoyPort)
+	template = strings.ReplaceAll(template, "ENVOY_ADMIN_PORT", kr.TdSidecarEnv.EnvoyAdminPort)
+	template = strings.ReplaceAll(template, "XDS_SERVER_CERT", kr.TdSidecarEnv.XdsServerCert)
+	template = strings.ReplaceAll(template, "TRACING_ENABLED", strconv.FormatBool(kr.TdSidecarEnv.TracingEnabled))
 	template = strings.ReplaceAll(template, "ACCESSLOG_PATH", "")
 	template = strings.ReplaceAll(template, "BACKEND_INBOUND_PORTS", "")
 

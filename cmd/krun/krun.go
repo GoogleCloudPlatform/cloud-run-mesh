@@ -29,14 +29,13 @@ import (
 var initDebug func(run *mesh.KRun)
 
 func main() {
-	// If ENABLE_TRAFFIC_DIRECTOR env variable is set then only set up necessary
-	// to conenct to Traffic Director control plane will be taken.
-	if os.Getenv("ENABLE_TRAFFIC_DIRECTOR") != "" {
-		startTd()
+	kr := mesh.New()
+
+	// If InitForTDFromMeshEnv returns true, then we will use TD mesh
+	if kr.InitForTDFromMeshEnv() {
+		startTd(kr)
 		select {}
 	}
-
-	kr := mesh.New()
 
 	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
 	kr.VendorInit = gcp.InitGCP
@@ -132,10 +131,9 @@ func main() {
 	select {}
 }
 
-func startTd() {
-	kr := mesh.New()
-	kr.PrepareTrafficDirectorEnv()
-	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.TdSidecarEnv.ProjectNumber, kr.TdSidecarEnv.NetworkName)
+func startTd(kr *mesh.KRun) {
+	kr.InitForTD()
+	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.ProjectNumber, kr.NetworkName)
 
 	if os.Getuid() != 0 {
 		log.Fatal("envoy for TD only supports running as root")
