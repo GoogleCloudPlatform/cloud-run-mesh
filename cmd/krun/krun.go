@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -31,6 +32,11 @@ func main() {
 	ctx := context.Background()
 	kr := mesh.New()
 
+	// If InitForTDFromMeshEnv returns true, then we will use TD mesh
+	if kr.InitForTDFromMeshEnv() {
+		startTd(kr)
+		select {}
+	}
 	err := gcp.InitGCP(ctx, kr)
 	if err != nil {
 		log.Fatal("Failed to find K8S ", time.Since(kr.StartTime), kr, os.Environ(), err)
@@ -63,7 +69,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Failed to start the mesh agent ", err)
 		}
-		err = kr.WaitHTTPReady( "http://127.0.0.1:15021/healthz/ready", 10 * time.Second)
+		err = kr.WaitHTTPReady("http://127.0.0.1:15021/healthz/ready", 10*time.Second)
 		if err != nil {
 			log.Fatal("Mesh agent not ready ", err)
 		}
@@ -125,4 +131,31 @@ func main() {
 	}
 
 	select {}
+}
+
+func startTd(kr *mesh.KRun) {
+	kr.InitForTD()
+	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.ProjectNumber, kr.NetworkName)
+
+	if os.Getuid() != 0 {
+		log.Fatal("td only supports running as root")
+	}
+
+	log.Println("Starting iptables")
+	if err := kr.StartIPTablesInterception(); err != nil {
+		log.Fatal("Iptables interception failed: ", err)
+	}
+	log.Println("Finished iptables")
+
+	// Now we run TD start up script for IP tables interception and envoy startup.
+	if err := kr.StartEnvoy(); err != nil {
+		log.Fatal("Failed to start envoy ", err)
+	}
+
+	adminConsoleAddr := fmt.Sprintf("127.0.0.1:%s", kr.TdSidecarEnv.EnvoyAdminPort)
+	if err := kr.WaitEnvoyReady(adminConsoleAddr, 10*time.Second); err != nil {
+		log.Fatal("Failed to wait for envoy to start: ", err)
+	}
+
+	kr.StartApp()
 }

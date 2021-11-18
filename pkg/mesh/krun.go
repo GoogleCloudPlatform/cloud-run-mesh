@@ -20,16 +20,19 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v2"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -177,6 +180,13 @@ type KRun struct {
 
 	X509KeyPair    *tls.Certificate
 	TrustedCertPool *x509.CertPool
+
+	// Holds Traffic Director sidecar environment.
+	TdSidecarEnv *TdSidecarEnv
+
+	// Network Name for which the envoy configs will be requested. For TD, this refers to VPC network name
+	// in the forwarding rule.
+	NetworkName string
 }
 
 var Debug = false
@@ -184,15 +194,72 @@ var Debug = false
 // New creates an uninitialized mesh launcher.
 func New() *KRun {
 	kr := &KRun{
-		StartTime:   time.Now(),
-		Aud2File:    map[string]string{},
-		Labels:      map[string]string{},
-		ProxyConfig: &ProxyConfig{},
 		MeshEnv:     map[string]string{},
 		TrustedCertPool: x509.NewCertPool(),
+		StartTime:    time.Now(),
+		Aud2File:     map[string]string{},
+		Labels:       map[string]string{},
+		ProxyConfig:  &ProxyConfig{},
+		TdSidecarEnv: NewTdSidecarEnv(),
 	}
 	kr.initFromEnv()
 	return kr
+}
+
+func (kr *KRun) InitForTD() {
+	if len(kr.NetworkName) == 0 {
+		kr.NetworkName = "default"
+	}
+
+	if len(kr.ProjectNumber) == 0 {
+		if projectNumber, err := kr.TdSidecarEnv.fetchProjectNumber(); err != nil {
+			log.Println("Unable to auto-generate project_number: ", err)
+		} else {
+			kr.ProjectNumber = projectNumber
+		}
+	}
+
+	if nodeID, err := kr.TdSidecarEnv.fetchNodeID(); err != nil {
+		kr.TdSidecarEnv.NodeID = fmt.Sprintf("%s~%s", uuid.New().String(), "127.0.0.1")
+		log.Println("Unable to generate proper nodeID, using: ", kr.TdSidecarEnv.NodeID)
+	} else {
+		kr.TdSidecarEnv.NodeID = nodeID
+	}
+
+	if zone, err := kr.TdSidecarEnv.fetchZone(); err != nil {
+		kr.TdSidecarEnv.EnvoyZone = "cloud-run-cluster"
+		log.Println("Unable to generate proper zone info, using: ", kr.TdSidecarEnv.EnvoyZone)
+	} else {
+		kr.TdSidecarEnv.EnvoyZone = zone
+	}
+}
+
+// Returns true if Mesh env variable refers to TD mesh
+// Traffic Director expects MESH env in the following format:
+// td://projects/{PROJECT_NUMBER}/networks/{NETWORK_NAME}
+// where PROJECT_NUMBER can be an empty string or a numeric. When empty, project Number is auto derived
+// where NETWORK_NAME can be empty or some string. When empty, network name defaults to 'default'
+func (kr *KRun) InitForTDFromMeshEnv() bool {
+	mesh := os.Getenv("MESH")
+	log.Println(mesh)
+	networkRegex, err := regexp.Compile(`(?:td://projects/)([0-9]*)(?:/networks/)([-a-z0-9]*)`)
+	if err != nil {
+		return false
+	}
+	splits := networkRegex.FindStringSubmatch(mesh)
+	// Submatch 0 is the match of the entire expression, submatch 1 the match of the first parenthesized subexpression, and so on.
+	if len(splits) != 3 {
+		return false
+	}
+
+	if len(splits[1]) != 0 {
+		kr.ProjectNumber = splits[1]
+	}
+
+	if len(splits[2]) != 0 {
+		kr.NetworkName = splits[2]
+	}
+	return true
 }
 
 // Extract Region from ClusterLocation
@@ -520,4 +587,13 @@ func (kr *KRun) Signals() {
 		}
 	}()
 
+}
+
+// GetTrafficDirectorIPTablesEnvVars returns env vars needed for iptables interception for TD
+func (kr *KRun) GetTrafficDirectorIPTablesEnvVars() []string {
+	return kr.TdSidecarEnv.getIPTablesInterceptionEnvVars()
+}
+
+func (kr *KRun) PrepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
+	return kr.prepareTrafficDirectorBootstrap(templatePath, outputPath)
 }
