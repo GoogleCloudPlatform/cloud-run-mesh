@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -589,4 +590,21 @@ func (s *STS) sendSuccessfulResponse(w http.ResponseWriter, tokenData []byte) {
 		log.Printf("failure in sending STS success response: %v", err)
 		return
 	}
+}
+
+// TokenPayload returns the decoded token. Used for logging/debugging token content, without printing the signature.
+func TokenPayload(jwt string) string {
+	jwtSplit := strings.Split(jwt, ".")
+	if len(jwtSplit) != 3 {
+		return ""
+	}
+	//azp,"email","exp":1629832319,"iss":"https://accounts.google.com","sub":"1118295...
+	payload := jwtSplit[1]
+
+	payloadBytes, err := base64.RawStdEncoding.DecodeString(payload)
+	if err != nil {
+		return ""
+	}
+
+	return string(payloadBytes)
 }

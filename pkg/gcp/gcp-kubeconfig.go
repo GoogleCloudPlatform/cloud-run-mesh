@@ -17,6 +17,7 @@ package gcp
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -163,13 +164,23 @@ func RegionFromMetadata() (string, error) {
 
 func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
-	kc := &k8s.K8S{Mesh: kr, VendorInit: initGCP}
+	kc := &k8s.K8S{Mesh: kr}
 	err := kc.K8SClient(ctx)
 	if err != nil {
 		return err
 	}
+	// Load GCP env variables - will be needed.
+	configFromEnvAndMD(ctx, kc.Mesh)
+
+	// Init additional GCP-specific env, and load the k8s cluster using discovery
+	initGKE(ctx, kc)
+	if kc.Client == nil {
+		return errors.New("No cluster found")
+	}
+
 	kr.Cfg = kc
 	kr.TokenProvider = kc
+	kr.Client = kc.Client
 
 	// After the config was loaded.
 	kr.PostConfigLoad = PostConfigLoad
@@ -194,9 +205,11 @@ func PostConfigLoad(ctx context.Context, kr *mesh.KRun) error {
 
 	// TODO: only if mesh_env contains a WorkloadCertificateConfig with endpoint starting with //privateca.googleapis.com
 	// Errors results to fallback to pilot-agent and istio.
-	kr.CSRSigner, err = NewCASCertProvider("projects/"+kr.ProjectId+
-			"/locations/"+kr.Region()+"/caPools/mesh", ol)
-	
+	cas := kr.Config("CAS", "")
+	if cas != "" {
+		kr.CSRSigner, err = NewCASCertProvider("projects/"+kr.ProjectId+
+				"/locations/"+kr.Region()+"/caPools/mesh", ol)
+	}
 	return err
 }
 
@@ -207,12 +220,8 @@ func PostConfigLoad(ctx context.Context, kr *mesh.KRun) error {
 // Namespace,
 // ProjectId, ProjectNumber
 // ClusterName, ClusterLocation
-func initGCP(ctx context.Context, kc *k8s.K8S) error {
-	kr := kc.Mesh
-	// Load GCP env variables - will be needed.
-	configFromEnvAndMD(ctx, kc.Mesh)
-
-	if kr.Client != nil {
+func initGKE(ctx context.Context, kc *k8s.K8S) error {
+	if kc.Client != nil {
 		// Running in-cluster or using kube config
 		return nil
 	}
@@ -224,6 +233,7 @@ func initGCP(ctx context.Context, kc *k8s.K8S) error {
 	// TODO: attempt to get the config project ID from a label on the workload or project
 	// (if metadata servere or CR can provide them)
 
+	kr := kc.Mesh
 	configProjectID := kr.ProjectId
 	configLocation := kr.ClusterLocation
 	configClusterName := kr.ClusterName
@@ -289,6 +299,9 @@ func initGCP(ctx context.Context, kc *k8s.K8S) error {
 	} else {
 		// Explicit override - user specified the full path to the cluster.
 		// ~400 ms
+		if mesh.Debug {
+			log.Println("Load GKE cluster explicitly", configProjectID, configLocation, configClusterName)
+		}
 		cl, err = GKECluster(ctx, kr, configProjectID, configLocation, configClusterName)
 		if err != nil {
 			return err
@@ -316,7 +329,7 @@ func initGCP(ctx context.Context, kc *k8s.K8S) error {
 	if err != nil {
 		return err
 	}
-	kr.Client, err = kubernetes.NewForConfig(rc)
+	kc.Client, err = kubernetes.NewForConfig(rc)
 	if err != nil {
 		return err
 	}

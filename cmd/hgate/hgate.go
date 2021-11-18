@@ -35,11 +35,12 @@ import (
 // krun+pilot-agent.
 func main() {
 	kr := mesh.New()
+	ctx := context.Background()
 
-	kr.VendorInit = gcp.InitGCP
+	gcp.InitGCP(ctx, kr)
 
 	sg := meshconnectord.New(kr)
-	err := sg.InitSNIGate(context.Background(), ":15442", ":15441")
+	err := sg.InitSNIGate(ctx, ":15442", ":15441")
 	if err != nil {
 		log.Fatal("Failed to connect to GKE ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}

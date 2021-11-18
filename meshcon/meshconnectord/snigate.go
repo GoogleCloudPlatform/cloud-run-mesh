@@ -38,6 +38,9 @@ type MeshConnector struct {
 	Namespace     string
 	ConfigMapName string
 
+	CAPool string
+	CASRoots string
+
 	stop     chan struct{}
 	Services map[string]*corev1.Service
 	EP       map[string]*discoveryv1beta1.EndpointSlice

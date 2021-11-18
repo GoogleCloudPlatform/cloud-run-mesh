@@ -120,6 +120,12 @@ func (sg *MeshConnector) SaveToMap(kr *mesh.KRun, d map[string]string) bool {
 	needUpdate = setIfEmpty(d, "MCON_ADDR", kr.MeshConnectorAddr, needUpdate)
 	needUpdate = setIfEmpty(d, "IMCON_ADDR", kr.MeshConnectorInternalAddr, needUpdate)
 
+	// TODO: set CAS based on the WorkloadCertificate config - for now use the default name if Zatar is enabled
+	// This should set the full config - including EC support, etc.
+	needUpdate = setIfEmpty(d, "CAS", sg.CAPool, needUpdate)
+	needUpdate = setIfEmpty(d, "CAROOT_CAS", sg.CASRoots, needUpdate)
+
+
 	if kr.CitadelRoot != "" {
 		// CA root of the XDS server. Empty if only MeshCA is used.
 		// TODO: use CAROOT_XXX to save multiple CAs (MeshCA, Citadel, other clusters)

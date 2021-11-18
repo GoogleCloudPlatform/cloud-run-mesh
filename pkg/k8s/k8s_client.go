@@ -21,8 +21,6 @@ import (
 	"os"
 	"strings"
 
-	"errors"
-
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,12 +34,11 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-var Debug = false
+var Debug = true
 
 type K8S struct {
 	Mesh *mesh.KRun
 	Client                                  *kubernetes.Clientset
-	VendorInit func(context.Context, *K8S)  error
 }
 
 // Init klog.InitFlags from an env (to avoid messing with the CLI of
@@ -140,18 +137,7 @@ func (kr *K8S) K8SClient(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	if kr.VendorInit != nil {
-		err = kr.VendorInit(ctx, kr)
-		if err != nil {
-			return err
-		}
-	}
-	if kr.Client != nil {
-		return nil
-	}
-
-	return errors.New("not found")
+	return nil
 }
 
 // LoadConfig gets the default k8s client, using environment

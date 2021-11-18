@@ -2,8 +2,10 @@ package meshconnectord
 
 import (
 	"context"
+	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"cloud.google.com/go/compute/metadata"
@@ -42,6 +44,15 @@ func (sg *MeshConnector) InitMeshEnvGCP(ctx context.Context) error {
 	}()
 
 	wg.Wait()
+
+	rootFile := filepath.Join(mesh.WorkloadCertDir, mesh.WorkloadRootCAs)
+	rootCertPEM, err := ioutil.ReadFile(rootFile)
+	if err == nil {
+		sg.CAPool = "projects/"+kr.ProjectId+"/locations/"+kr.Region()+"/caPools/mesh"
+		sg.CASRoots = string(rootCertPEM)
+		log.Println("CASEnabled", "CAPool", sg.CAPool)
+	}
+
 	return err
 }
 

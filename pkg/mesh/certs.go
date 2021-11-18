@@ -12,12 +12,16 @@ import (
 	"encoding/pem"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
 // WIP - consolidate cert signing, not require pilot-agent for proxyless gRPC.
+// TODO: rotation
+// TODO: save last cert in the chain to roots
+// TODO: only use CAS if mesh-env is configured
 
 const (
 	blockTypeECPrivateKey    = "EC PRIVATE KEY"
@@ -49,8 +53,10 @@ func (kr *KRun) InitCertificates(ctx context.Context, outDir string) error {
 		if err == nil && len(kp.Certificate) > 0 {
 			kp.Leaf, _ = x509.ParseCertificate(kp.Certificate[0])
 
-			if !kp.Leaf.NotAfter.Before(time.Now()) {
-				log.Println("Existing Cert", "expires", kp.Leaf.NotAfter)
+			exp := kp.Leaf.NotAfter.Sub(time.Now())
+			if exp > -5 * time.Minute {
+				kr.X509KeyPair = &kp
+				log.Println("Existing Cert", "expires", exp)
 				return nil
 			}
 		}
@@ -58,6 +64,7 @@ func (kr *KRun) InitCertificates(ctx context.Context, outDir string) error {
 	if kr.CSRSigner == nil {
 		return nil
 	}
+	// TODO: decode WorkloadCertificateConfig, use EC256 or RSA
 	privPEM, csr, err := kr.NewCSR("rsa", kr.TrustDomain, "spiffe://"+kr.TrustDomain+"/ns/"+kr.Namespace+"/sa/"+kr.KSA)
 	if err != nil {
 		return err
@@ -69,7 +76,7 @@ func (kr *KRun) InitCertificates(ctx context.Context, outDir string) error {
 	certChain := strings.Join(chain, "\n")
 
 	kp, err := tls.X509KeyPair([]byte(certChain), privPEM)
-	kr.X509KeyPair = kp
+	kr.X509KeyPair = &kp
 
 	if err == nil && len(kp.Certificate) > 0 {
 		kp.Leaf, _ = x509.ParseCertificate(kp.Certificate[0])
@@ -80,12 +87,88 @@ func (kr *KRun) InitCertificates(ctx context.Context, outDir string) error {
 		}
 	}
 	if outDir != "" {
-		ioutil.WriteFile(keyFile, privPEM, 0660)
-		ioutil.WriteFile(chainFile, []byte(certChain), 0660)
+		os.MkdirAll(outDir, 0755)
+		err = ioutil.WriteFile(keyFile, privPEM, 0660)
+		if err != nil {
+			return err
+		}
+		err = ioutil.WriteFile(chainFile, []byte(certChain), 0660)
+		if err != nil {
+			return err
+		}
+		if os.Getuid() == 0 {
+			os.Chown(outDir, 1337, 1337)
+			os.Chown(keyFile, 1337, 1337)
+			os.Chown(chainFile, 1337, 1337)
+
+		}
 	}
 	// The roots are extracted from the mesh env.
 
 	return err
+}
+
+// InitRoots will find the mesh roots.
+//
+// - if Zatar or another CSI provider are enabled, we do nothing - Zatar config is the root of trust for everything
+// - otherwise the roots are expected to be part of mesh-env. The mesh connector or other tools will
+//  populate it - ideally from the CSI/Zatar or TrustConfig CRD.
+func (kr *KRun) InitRoots(ctx context.Context, outDir string) error {
+	rootFile := filepath.Join(outDir, WorkloadRootCAs)
+	if outDir != "" {
+		rootCertPEM, err := ioutil.ReadFile(rootFile)
+		if err == nil {
+			block, rest := pem.Decode(rootCertPEM)
+
+			var blockBytes []byte
+			for block != nil {
+				blockBytes = append(blockBytes, block.Bytes...)
+				block, rest = pem.Decode(rest)
+			}
+
+			rootCAs, err := x509.ParseCertificates(blockBytes)
+			if err != nil {
+				return err
+			}
+			for _, c := range rootCAs {
+				kr.TrustedCertPool.AddCert(c)
+			}
+			return nil
+		}
+	}
+
+	// File not found - extract it from mesh env, and save it.
+	// This includes Citadel root (if active in the mesh) or other roots.
+	roots := ""
+	for k, v := range kr.MeshEnv {
+		if strings.HasPrefix(k, "CAROOT") {
+			roots = roots + "\n" + v
+		}
+	}
+	block, rest := pem.Decode([]byte(roots))
+	var blockBytes []byte
+	for block != nil {
+		blockBytes = append(blockBytes, block.Bytes...)
+		block, rest = pem.Decode(rest)
+	}
+
+	rootCAs, err := x509.ParseCertificates(blockBytes)
+	if err != nil {
+		return err
+	}
+	for _, c := range rootCAs {
+		kr.TrustedCertPool.AddCert(c)
+	}
+
+	if outDir != "" {
+		os.MkdirAll(outDir, 0660)
+		err = ioutil.WriteFile(rootFile, []byte(roots), 0644)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type CSRSigner interface {
@@ -94,7 +177,7 @@ type CSRSigner interface {
 
 const (
 
-	certBase = "./var/run/secrets/workload-spiffe-credentials"
+	WorkloadCertDir = "./var/run/secrets/workload-spiffe-credentials"
 
 	// Different from typical Istio  and CertManager key.pem - we can check both
 	privateKey = "private_key.pem"
@@ -107,7 +190,7 @@ const (
 	// to all workloads including TD proxyless GRPC.
 	//
 	// Outside of GKE, this is loaded from the mesh.env - the mesh gate is responsible to keep it up to date.
-	rootCA = "ca_certificates.pem"
+	WorkloadRootCAs = "ca_certificates.pem"
 )
 
 type WorkloadCertificateConfigSpec struct {

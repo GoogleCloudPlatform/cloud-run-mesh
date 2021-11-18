@@ -17,6 +17,7 @@ package mesh
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -173,7 +174,9 @@ type KRun struct {
 
 	// Function to call after config has been loaded, before init certs.
 	PostConfigLoad func(ctx context.Context, kr *KRun) error
-	X509KeyPair    tls.Certificate
+
+	X509KeyPair    *tls.Certificate
+	TrustedCertPool *x509.CertPool
 }
 
 var Debug = false
@@ -186,6 +189,7 @@ func New() *KRun {
 		Labels:      map[string]string{},
 		ProxyConfig: &ProxyConfig{},
 		MeshEnv:     map[string]string{},
+		TrustedCertPool: x509.NewCertPool(),
 	}
 	kr.initFromEnv()
 	return kr
@@ -334,7 +338,14 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 		kr.PostConfigLoad(ctx, kr)
 	}
 
-	kr.InitCertificates(ctx, certBase)
+	err := kr.InitCertificates(ctx, WorkloadCertDir)
+	if err != nil {
+		return err
+	}
+	err = kr.InitRoots(ctx, WorkloadCertDir)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -347,14 +358,21 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 // Certs for 'direct' (library) use can be created without saving the tokens.
 // 'library' means linking this or a similar package with the application.
 func (kr *KRun) RefreshAndSaveTokens() {
+	// TODO: trace on errors
+	ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second)
+
 	for aud, f := range kr.Aud2File {
-		kr.saveTokenToFile(kr.Namespace, aud, f)
+		kr.saveTokenToFile(ctx, kr.Namespace, aud, f)
 	}
+	kr.InitCertificates(ctx, WorkloadCertDir)
+	// TODO: we may want to reload mesh-env, and adjust behavior ( log levels, etc)
+	// Then we can also call  kr.InitRoots(ctx, certBase).
+
 	time.AfterFunc(30*time.Minute, kr.RefreshAndSaveTokens)
 }
 
-func (kr *KRun) saveTokenToFile(ns string, audience string, destFile string) error {
-	t, err := kr.GetToken(context.TODO(), audience)
+func (kr *KRun) saveTokenToFile(ctx context.Context, ns string, audience string, destFile string) error {
+	t, err := kr.TokenProvider.GetToken(ctx, audience)
 	if err != nil {
 		log.Println("Error creating ", ns, kr.KSA, audience, err)
 		return err
@@ -432,8 +450,8 @@ func (kr *KRun) initFromMeshEnv(d map[string]string) error {
 	updateFromMap(d, "PROJECT_ID", &kr.ProjectId)
 	updateFromMap(d, "MCON_ADDR", &kr.MeshConnectorAddr)
 	updateFromMap(d, "IMCON_ADDR", &kr.MeshConnectorInternalAddr)
-	updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
 
+	updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
 	if kr.CitadelRoot != "" {
 		kr.CARoots = append(kr.CARoots, kr.CitadelRoot)
 	}
@@ -446,12 +464,20 @@ func updateFromMap(d map[string]string, key string, dest *string) {
 	}
 }
 
+// Config returns a mesh setting, from env variable or the loaded mesh-env.
 func (kr *KRun) Config(name, def string) string {
 	v := os.Getenv(name)
-	if name == "" {
-		return def
+	if v != "" {
+		return v
 	}
-	return v
+	if kr.MeshEnv != nil {
+		v = kr.MeshEnv[name]
+		if v != "" {
+			return v
+		}
+	}
+
+	return def
 }
 
 func Is404(err error) bool {

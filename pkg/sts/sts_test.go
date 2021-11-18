@@ -52,7 +52,7 @@ func TestSTS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	log.Println(mesh.TokenPayload(masterT))
+	log.Println(sts.TokenPayload(masterT))
 
 	s, err := sts.NewSTS(kr)
 	if err != nil {
@@ -73,5 +73,5 @@ func TestSTS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log.Println(mesh.TokenPayload(a))
+	log.Println(sts.TokenPayload(a))
 }

@@ -318,6 +318,10 @@ func (kr *KRun) StartIstioAgent() error {
 	// Gets translated to "APP_CONTAINERS" metadata, used to identify the container.
 	env = addIfMissing(env, "ISTIO_META_APP_CONTAINERS", "cloudrun")
 
+	if kr.X509KeyPair != nil {
+		// Loaded from workload cert file - no need to use citadel or mesh CA.
+		env = addIfMissing(env, "CA_PROVIDER", "GoogleGkeWorkloadCertificate")
+	}
 	// If MCP is available, and PROXY_CONFIG is not set explicitly
 	if kr.MeshTenant != "" &&
 		kr.MeshTenant != "-" &&
@@ -352,7 +356,7 @@ func (kr *KRun) StartIstioAgent() error {
 		if _, err := os.Stat("/var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
 			env = append(env, "DISABLE_ENVOY=true")
 		} else {
-			env = append(env, "ISTIO_BOOTSTRAP", "/var/lib/istio/envoy/envoy_bootstrap_tmpl.json")
+			env = append(env, "ISTIO_BOOTSTRAP=/var/lib/istio/envoy/envoy_bootstrap_tmpl.json")
 		}
 	}
 
@@ -394,6 +398,8 @@ func (kr *KRun) StartIstioAgent() error {
 	cmd.Stderr = os.Stderr
 	os.MkdirAll(prefix+"/var/lib/istio/envoy/", 0700)
 
+	saveLaunchInfo(cmd)
+
 	go func() {
 		err := cmd.Start()
 		if err != nil {
@@ -414,6 +420,24 @@ func (kr *KRun) StartIstioAgent() error {
 
 	// TODO: wait for agent to be ready
 	return nil
+}
+
+// For troubleshooting, generate a file with the env and command.
+// This can also be used for running krun as a periodic job instead of as a launcher
+func saveLaunchInfo(cmd *exec.Cmd) {
+	b := bytes.Buffer{}
+	for _, e := range cmd.Env {
+		b.Write([]byte(e))
+		b.Write([]byte{'\n'})
+	}
+	b.Write([]byte{'\n'})
+	b.Write([]byte("export -a\ndlv --listen=127.0.0.1:44997 --headless=true --api-version=2 --check-go-version=false --only-same-user=false exec "))
+	for _, e := range cmd.Args {
+		b.Write([]byte(e))
+		b.Write([]byte{' '})
+	}
+	b.Write([]byte{'\n'})
+	ioutil.WriteFile("./var/lib/istio/envoy/cmd.sh", b.Bytes(), 0700)
 }
 
 func addIfMissing(env []string, key, val string) []string {
