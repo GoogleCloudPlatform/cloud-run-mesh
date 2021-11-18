@@ -98,6 +98,8 @@ build:
 	mkdir -p ${OUT}/bin/
 	mkdir -p ${OUT}/docker-hgate
 	mkdir -p ${OUT}/docker-krun
+	cp ./scripts/bootstrap_template.yaml ${OUT}/docker-krun/
+	cp ./scripts/iptables.sh ${OUT}/docker-krun/
 	CGO_ENABLED=0  time  go build -ldflags '-s -w -extldflags "-static"' -o ${OUT}/bin/ ./cmd/hbone/ ./cmd/krun ./cmd/hgate
 	ls -l ${OUT}/bin
 	mv ${OUT}/bin/krun ${OUT}/docker-krun
