@@ -17,7 +17,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -71,6 +73,14 @@ func main() {
 		}
 		err = kr.WaitHTTPReady("http://127.0.0.1:15021/healthz/ready", 10*time.Second)
 		if err != nil {
+			cd, err := http.Get("http://127.0.0.1:15000/config_dump")
+			if err == nil {
+				cdb, err := ioutil.ReadAll(cd.Body)
+				if err == nil {
+					//os.Stderr.Write(cdb)
+					ioutil.WriteFile("./var/lib/istio/envoy/config_dump.json", cdb, 0777)
+				}
+			}
 			log.Fatal("Mesh agent not ready ", err)
 		}
 	}

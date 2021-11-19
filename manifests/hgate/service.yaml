@@ -22,6 +22,11 @@ kind: Service
 metadata:
   name: hgate
   namespace: istio-system
+  annotations:
+    # The service is not meant for mesh use - excluding from cluster generation.
+    # Since it listens on 80/443, would break whitebox listeners.
+    # TODO: fix whitebox mode to honor UNTRUSTED
+    networking.istio.io/exportTo: .
   labels:
     topology.istio.io/network: hbone
 spec:

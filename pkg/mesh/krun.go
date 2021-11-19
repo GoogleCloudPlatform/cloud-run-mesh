@@ -18,8 +18,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -144,6 +144,7 @@ type KRun struct {
 	CARoots []string
 
 	// Citadel root(s) - PEM format, may have multiple roots.
+	//
 	CitadelRoot string
 
 	// MeshAddr is the location of the mesh environment file.

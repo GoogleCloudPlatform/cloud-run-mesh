@@ -25,7 +25,7 @@ func (sg *MeshConnector) InitMeshEnv(ctx context.Context) error {
 	// enabled.
 	go func() {
 		defer wq.Done()
-		citadelRoot, e := sg.GetCARoot(ctx)
+		citadelRoot, e := sg.GetCitadelRoots(ctx)
 		if err != nil {
 			err = e
 			return
@@ -40,8 +40,14 @@ func (sg *MeshConnector) InitMeshEnv(ctx context.Context) error {
 	return err
 }
 
-
-func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
+// Load the CA roots from istio-ca-root-cert configmap in istio-system.
+// This is typically replicated in each namespace and mounted - but we'll not rely on this, just make mesh-env
+// readable to all authenticated users.
+// This is used to connect to Istiod, and is typically the Citadel root CA. If missing, it means citadel is not used
+// and CAS will be used instead.
+//
+// Mesh connector will use the mesh roots.
+func (sg *MeshConnector) GetCitadelRoots(ctx context.Context) (string, error) {
 	// TODO: depending on error, move on or report a real error
 	kr := sg.Mesh
 	cm, err := kr.Cfg.GetCM(ctx, "istio-system", "istio-ca-root-cert")
