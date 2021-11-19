@@ -17,7 +17,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 var initDebug func(run *mesh.KRun)
 
 func main() {
+	ctx := context.Background()
 	kr := mesh.New()
 
 	// If InitForTDFromMeshEnv returns true, then we will use TD mesh
@@ -36,12 +39,13 @@ func main() {
 		startTd(kr)
 		select {}
 	}
-
-	// Avoid direct dependency on GCP libraries - may be replaced by a REST client or different XDS server discovery.
-	kr.VendorInit = gcp.InitGCP
+	err := gcp.InitGCP(ctx, kr)
+	if err != nil {
+		log.Fatal("Failed to find K8S ", time.Since(kr.StartTime), kr, os.Environ(), err)
+	}
 
 	// Use env and vendor init to discover the mesh - including APIserver, XDS, roots.
-	err := kr.LoadConfig(context.Background())
+	err = kr.LoadConfig(context.Background())
 	if err != nil {
 		log.Fatal("Failed to connect to mesh ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}
@@ -69,6 +73,14 @@ func main() {
 		}
 		err = kr.WaitHTTPReady("http://127.0.0.1:15021/healthz/ready", 10*time.Second)
 		if err != nil {
+			cd, err := http.Get("http://127.0.0.1:15000/config_dump")
+			if err == nil {
+				cdb, err := ioutil.ReadAll(cd.Body)
+				if err == nil {
+					//os.Stderr.Write(cdb)
+					ioutil.WriteFile("./var/lib/istio/envoy/config_dump.json", cdb, 0777)
+				}
+			}
 			log.Fatal("Mesh agent not ready ", err)
 		}
 	}
@@ -83,7 +95,7 @@ func main() {
 
 	kr.StartApp()
 
-	if os.Getenv("APP_PORT") != "-" {
+	if os.Getenv("APP_PORT") != "-" && len(os.Args) > 1 {
 		err = kr.WaitTCPReady("127.0.0.1:8080", 10*time.Second)
 		if err != nil {
 			log.Fatal("Timeout waiting for app", err)

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	_ "github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
@@ -34,6 +35,8 @@ func TestSNIGate(t *testing.T) {
 	gateK8S := mesh.New()
 	gateK8S.XDSAddr = "-" // prevent pilot-agent from starting
 	gateK8S.BaseDir = "../../"
+	ctx := context.Background()
+	gcp.InitGCP(ctx, gateK8S)
 
 	gate := New(gateK8S)
 

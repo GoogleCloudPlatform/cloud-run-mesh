@@ -16,8 +16,12 @@ package mesh
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -31,9 +35,17 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
+
+type Cfg interface {
+	GetSecret(ctx context.Context, ns string, name string) (map[string][]byte, error)
+	GetCM(ctx context.Context, ns string, name string) (map[string]string, error)
+}
+
+type TokenProvider interface {
+	GetToken(ctx context.Context, aud string) (string, error)
+}
 
 // KRun allows running an app in an Istio and K8S environment.
 type KRun struct {
@@ -115,6 +127,7 @@ type KRun struct {
 	// TODO: replace with Workloadlocation. Config cluster location not used.
 	ClusterLocation string
 
+	Children 	[]*exec.Cmd
 	agentCmd    *exec.Cmd
 	appCmd      *exec.Cmd
 	TrustDomain string
@@ -132,6 +145,7 @@ type KRun struct {
 	CARoots []string
 
 	// Citadel root(s) - PEM format, may have multiple roots.
+	//
 	CitadelRoot string
 
 	// MeshAddr is the location of the mesh environment file.
@@ -152,6 +166,22 @@ type KRun struct {
 
 	InstanceID string
 
+	// Content of the 'mesh environment' - loaded from the config file.
+	MeshEnv map[string]string
+
+	CSRSigner CSRSigner
+
+	// Interface to abstract k8s implementation
+	TokenProvider    TokenProvider
+	Cfg              Cfg
+	TransportWrapper func(transport http.RoundTripper) http.RoundTripper
+
+	// Function to call after config has been loaded, before init certs.
+	PostConfigLoad func(ctx context.Context, kr *KRun) error
+
+	X509KeyPair    *tls.Certificate
+	TrustedCertPool *x509.CertPool
+
 	// Holds Traffic Director sidecar environment.
 	TdSidecarEnv *TdSidecarEnv
 
@@ -160,15 +190,20 @@ type KRun struct {
 	NetworkName string
 }
 
+var Debug = false
+
 // New creates an uninitialized mesh launcher.
 func New() *KRun {
 	kr := &KRun{
+		MeshEnv:     map[string]string{},
+		TrustedCertPool: x509.NewCertPool(),
 		StartTime:    time.Now(),
 		Aud2File:     map[string]string{},
 		Labels:       map[string]string{},
 		ProxyConfig:  &ProxyConfig{},
 		TdSidecarEnv: NewTdSidecarEnv(),
 	}
+	kr.initFromEnv()
 	return kr
 }
 
@@ -241,6 +276,17 @@ func (kr *KRun) Region() string {
 // to get the initial configuration for Istio and KRun.
 //
 func (kr *KRun) initFromEnv() {
+	mesh := kr.Config("MESH", "")
+	if mesh != "" {
+		meshURL, err := url.Parse(mesh)
+		if err != nil {
+			log.Println("Ignoring invalid meshURL", mesh, err)
+		}
+		kr.MeshAddr = meshURL
+	}
+
+	// TODO: if meshURL is set and is file:// or gke:// - use it directly
+
 	if kr.KSA == "" {
 		// Same environment used for VMs
 		kr.KSA = os.Getenv("WORKLOAD_SERVICE_ACCOUNT")
@@ -278,13 +324,6 @@ func (kr *KRun) initFromEnv() {
 		}
 	}
 
-	if kr.Namespace == "" {
-		kr.Namespace = "default"
-	}
-	if kr.Name == "" {
-		kr.Name = kr.Namespace
-	}
-
 	kr.Aud2File = map[string]string{}
 	prefix := "."
 	if os.Getuid() == 0 {
@@ -302,17 +341,11 @@ func (kr *KRun) initFromEnv() {
 	if kr.TrustDomain == "" {
 		kr.TrustDomain = os.Getenv("TRUST_DOMAIN")
 	}
-	if kr.TrustDomain == "" && kr.ProjectId != "" {
-		kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
-	}
 	// This can be used to provide a k8s-like environment, for apps that need it.
 	// It might be better to just generate a kubeconfig file and not pretend we are inside a cluster.
 	//if !kr.InCluster {
 	//	kr.Aud2File["api"] = prefix + "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	//}
-	if kr.KSA == "" {
-		kr.KSA = "default"
-	}
 
 	// TODO: stop using this, use ProxyConfig.DiscoveryAddress instead
 	if kr.XDSAddr == "" {
@@ -331,9 +364,62 @@ func (kr *KRun) initFromEnv() {
 	}
 
 	// Advanced options
-
 	// example dns:debug
 	kr.AgentDebug = kr.Config("XDS_AGENT_DEBUG", "")
+}
+
+// Set defaults, after all config was loaded, for missing configs
+func (kr *KRun) setDefaults() {
+	if kr.Namespace == "" {
+		kr.Namespace = "default"
+	}
+	if kr.Name == "" {
+		kr.Name = kr.Namespace
+	}
+	if kr.TrustDomain == "" && kr.ProjectId != "" {
+		kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
+	}
+	if kr.KSA == "" {
+		kr.KSA = "default"
+	}
+}
+
+func (kr *KRun) LoadConfig(ctx context.Context) error {
+	// It is possible to have only one of the 2 mesh connector services installed
+	if kr.XDSAddr == "" || kr.ProjectNumber == "" ||
+		(kr.MeshConnectorAddr == "" && kr.MeshConnectorInternalAddr == "") {
+
+		err := kr.loadMeshEnv(ctx)
+		if err != nil {
+			return err
+		}
+		// Adjust 'derived' values if needed.
+		if kr.TrustDomain == "" && kr.ProjectId != "" {
+			kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
+		}
+	}
+
+	if kr.ClusterAddress == "" {
+		kr.ClusterAddress = fmt.Sprintf("https://container.googleapis.com/v1/projects/%s/locations/%s/clusters/%s",
+			kr.ProjectId, kr.ClusterLocation, kr.ClusterName)
+	}
+
+	if kr.PostConfigLoad != nil {
+		kr.PostConfigLoad(ctx, kr)
+	}
+
+	kr.setDefaults()
+
+	err := kr.InitCertificates(ctx, WorkloadCertDir)
+	if err != nil {
+		return err
+	}
+	err = kr.InitRoots(ctx, WorkloadCertDir)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // RefreshAndSaveTokens is run periodically to create token, secrets, config map files.
@@ -344,10 +430,39 @@ func (kr *KRun) initFromEnv() {
 // Certs for 'direct' (library) use can be created without saving the tokens.
 // 'library' means linking this or a similar package with the application.
 func (kr *KRun) RefreshAndSaveTokens() {
+	// TODO: trace on errors
+	ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second)
+
 	for aud, f := range kr.Aud2File {
-		kr.saveTokenToFile(kr.Namespace, aud, f)
+		kr.saveTokenToFile(ctx, kr.Namespace, aud, f)
 	}
+	kr.InitCertificates(ctx, WorkloadCertDir)
+	// TODO: we may want to reload mesh-env, and adjust behavior ( log levels, etc)
+	// Then we can also call  kr.InitRoots(ctx, certBase).
+
 	time.AfterFunc(30*time.Minute, kr.RefreshAndSaveTokens)
+}
+
+func (kr *KRun) saveTokenToFile(ctx context.Context, ns string, audience string, destFile string) error {
+	t, err := kr.TokenProvider.GetToken(ctx, audience)
+	if err != nil {
+		log.Println("Error creating ", ns, kr.KSA, audience, err)
+		return err
+	}
+	lastSlash := strings.LastIndex(destFile, "/")
+	err = os.MkdirAll(destFile[:lastSlash], 0755)
+	if err != nil {
+		log.Println("Error creating dir", ns, kr.KSA, destFile[:lastSlash])
+	}
+	// Save the token, readable by app. Little value to have istio token as different user,
+	// for this separate container/sandbox is needed.
+	err = ioutil.WriteFile(destFile, []byte(t), 0644)
+	if err != nil {
+		log.Println("Error creating ", ns, kr.KSA, audience, destFile, err)
+		return err
+	}
+
+	return nil
 }
 
 // FindXDSAddr will determine which discovery address to use.
@@ -379,56 +494,25 @@ func (kr *KRun) FindXDSAddr() string {
 	return addr
 }
 
-// Internal implementation detail for the 'mesh-env' for Istio and MCP.
-// This may change, it is not a stable API - see loadMeshEnv for the other side.
-//
-// Note that XDS_ADDR is not included by default - workloads will use the (I)MCON_ADDR
-// or MCP if MESH_TENANT is set. TD will also be set automatically if ASM clusters are not
-// detected.
-func (kr *KRun) SaveToMap(d map[string]string) bool {
-	needUpdate := false
-
-	// Set the GCP specific options, extracted from metadata - if not already set.
-	needUpdate = setIfEmpty(d, "PROJECT_NUMBER", kr.ProjectNumber, needUpdate)
-	needUpdate = setIfEmpty(d, "PROJECT_ID", kr.ProjectId, needUpdate)
-
-	// If "-" or empty - MCP is not available in the config cluster, will use the mesh gateway.
-	needUpdate = setIfEmpty(d, "MESH_TENANT", kr.MeshTenant, needUpdate)
-
-	needUpdate = setIfEmpty(d, "CLUSTER_NAME", kr.ClusterName, needUpdate)
-	needUpdate = setIfEmpty(d, "CLUSTER_LOCATION", kr.ClusterLocation, needUpdate)
-
-	// Public and internal address of the mesh connector. Internal only available in GKE and similar
-	// clusters.
-	needUpdate = setIfEmpty(d, "MCON_ADDR", kr.MeshConnectorAddr, needUpdate)
-	needUpdate = setIfEmpty(d, "IMCON_ADDR", kr.MeshConnectorInternalAddr, needUpdate)
-
-	if kr.CitadelRoot != "" {
-		// CA root of the XDS server. Empty if only MeshCA is used.
-		// TODO: use CAROOT_XXX to save multiple CAs (MeshCA, Citadel, other clusters)
-		needUpdate = setIfEmpty(d, "CAROOT_ISTIOD", kr.CitadelRoot, needUpdate)
-	}
-
-	return needUpdate
-}
-
 // loadMeshEnv will lookup the 'mesh-env', an opaque config for the mesh.
 // Currently it is loaded from K8S
 // TODO: URL, like 'konfig' ( including gcp pseudo-URL like gcp://cluster.location.project/.... )
 //
 func (kr *KRun) loadMeshEnv(ctx context.Context) error {
-	s, err := kr.Client.CoreV1().ConfigMaps("istio-system").Get(ctx,
-		"mesh-env", metav1.GetOptions{})
+	if kr.Cfg == nil {
+		return nil // no k8s, skip loading.
+	}
+	d, err := kr.Cfg.GetCM(ctx, "istio-system", "mesh-env")
 	if err != nil {
-		if Is404(err) {
-			return nil
-		}
 		return err
 	}
-	return kr.initFromMap(s.Data)
+	return kr.initFromMeshEnv(d)
 }
 
-func (kr *KRun) initFromMap(d map[string]string) error {
+// initFromMeshEnv updates settings in KR - but only if they were not explicitly set by env
+// variables.
+func (kr *KRun) initFromMeshEnv(d map[string]string) error {
+	kr.MeshEnv = d
 	// See connector for supported values
 	updateFromMap(d, "PROJECT_NUMBER", &kr.ProjectNumber)
 	updateFromMap(d, "MESH_TENANT", &kr.MeshTenant)
@@ -438,20 +522,12 @@ func (kr *KRun) initFromMap(d map[string]string) error {
 	updateFromMap(d, "PROJECT_ID", &kr.ProjectId)
 	updateFromMap(d, "MCON_ADDR", &kr.MeshConnectorAddr)
 	updateFromMap(d, "IMCON_ADDR", &kr.MeshConnectorInternalAddr)
-	updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
 
+	updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
 	if kr.CitadelRoot != "" {
 		kr.CARoots = append(kr.CARoots, kr.CitadelRoot)
 	}
 	return nil
-}
-
-func setIfEmpty(d map[string]string, key, val string, upd bool) bool {
-	if d[key] == "" && val != "" {
-		d[key] = val
-		return true
-	}
-	return upd
 }
 
 func updateFromMap(d map[string]string, key string, dest *string) {
@@ -460,12 +536,20 @@ func updateFromMap(d map[string]string, key string, dest *string) {
 	}
 }
 
+// Config returns a mesh setting, from env variable or the loaded mesh-env.
 func (kr *KRun) Config(name, def string) string {
 	v := os.Getenv(name)
-	if name == "" {
-		return def
+	if v != "" {
+		return v
 	}
-	return v
+	if kr.MeshEnv != nil {
+		v = kr.MeshEnv[name]
+		if v != "" {
+			return v
+		}
+	}
+
+	return def
 }
 
 func Is404(err error) bool {
@@ -506,8 +590,10 @@ func (kr *KRun) Signals() {
 		if kr.appCmd != nil {
 			kr.appCmd.Process.Signal(s)
 		}
+		for _, a := range kr.Children {
+			a.Process.Signal(s)
+		}
 	}()
-
 }
 
 // GetTrafficDirectorIPTablesEnvVars returns env vars needed for iptables interception for TD
@@ -518,3 +604,4 @@ func (kr *KRun) GetTrafficDirectorIPTablesEnvVars() []string {
 func (kr *KRun) PrepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
 	return kr.prepareTrafficDirectorBootstrap(templatePath, outputPath)
 }
+

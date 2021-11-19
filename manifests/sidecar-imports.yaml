@@ -1,0 +1,14 @@
+# This manifest configures the imports for 'default' namespace.
+# When debugging, krun defaults to default namespace if no namespace is specified.
+# In whitebox mode, this is currently not working due to kubernetes.default:443
+# TODO: in 1.13, fix whitebox to not attempt to listent on priv ports.
+apiVersion: networking.istio.io/v1alpha3
+kind: Sidecar
+metadata:
+  name: default
+  namespace: default
+spec:
+  egress:
+    - hosts:
+          - fortio/*
+          - test/*

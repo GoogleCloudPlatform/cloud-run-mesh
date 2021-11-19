@@ -32,10 +32,32 @@ const envoyUID = 1337
 const envoyGID = 1337
 
 func (kr *KRun) envoyCommand() *exec.Cmd {
+	// For Istio:
+	// -c etc/istio/proxy/envoy-rev0.json --restart-epoch 0 --drain-time-s 45 --drain-strategy immediate --parent-shutdown-time-s 60 --local-address-ip-version v4 --file-flush-interval-msec 1000 --disable-hot-restart --log-format %Y-%m-%dT%T.%fZ  %l      envoy %n        %v -l warning --component-log-level misc:error --concurrency 2
+	if kr.TdSidecarEnv == nil {
+		// TODO: add a simplified template, customize from ProxyConfig.
+		// ProxyConfig needs to be loaded
+		return exec.Command("/usr/local/bin/envoy",
+			"--config-path", "etc/istio/proxy/envoy-rev0.json",
+			"--allow-unknown-static-fields",
+			"--restart-epoch", "0",
+			"--drain-time-s", "45",
+			"--drain-strategy", "immediate",
+			"--parent-shutdown-time-s", "60",
+			"--local-address-ip-version", "v4",
+			"--file-flush-interval-msec", "1000",
+			"--disable-hot-restart",
+			"--log-format", "%Y-%m-%dT%T.%fZ  %l      envoy %n        %v -l warning",
+			"--component-log-level", "misc:error",
+			"--concurrency", "2",
+		)
+	}
+	// For TD:
 	return exec.Command("/usr/local/bin/envoy",
 		"--config-path", fmt.Sprintf("%s/bootstrap.yaml", kr.TdSidecarEnv.PackageDirectory),
 		"--log-level", kr.TdSidecarEnv.LogLevel,
-		"--log-path", "/var/log/envoy/envoy.log",
+		// Settings this will make the logs invisible and may run out of mem:
+		// "--log-path", "/var/log/envoy/envoy.log",
 		"--allow-unknown-static-fields",
 	)
 }

@@ -26,8 +26,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"k8s.io/apimachinery/pkg/util/rand"
 
-	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1"
 	privateca "cloud.google.com/go/security/privateca/apiv1"
+	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1"
 )
 
 type casCertProvider struct {
@@ -131,35 +131,3 @@ func (r *casCertProvider) CSRSign(ctx context.Context, csrPEM []byte, certValidT
 	certChain = append(certChain, cresp.GetPemCertificateChain()...)
 	return certChain, nil
 }
-
-// GetRootCertBundle:  Get CA certs of the pool from Google CAS API endpoint
-//
-// This is using Istio style of returning only the root certificate from each chain - and requires
-// that each workload presents the full chain to the root (root is not actually required)
-func (r *casCertProvider) GetRootCertBundle(ctx context.Context) ([]string, error) {
-	rootCertMap := make(map[string]struct{})
-	trustbundle := []string{}
-	var err error
-
-	req := &privatecapb.FetchCaCertsRequest{
-		CaPool: r.capool,
-	}
-	resp, err := r.caClient.FetchCaCerts(ctx, req)
-	if err != nil {
-		log.Printf("error when getting root-certs from CAS pool: %v", err)
-		return trustbundle, err
-	}
-	for _, certChain := range resp.CaCerts {
-		certs := certChain.Certificates
-		rootCert := certs[len(certs)-1]
-		if _, ok := rootCertMap[rootCert]; !ok {
-			rootCertMap[rootCert] = struct{}{}
-		}
-	}
-
-	for rootCert := range rootCertMap {
-		trustbundle = append(trustbundle, rootCert)
-	}
-	return trustbundle, nil
-}
-

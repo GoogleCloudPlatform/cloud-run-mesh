@@ -28,7 +28,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// Requires GOOGLE_APPLICATION_CREDENTIALS or KUBECONFIG or $HOME/.kube/config
+// Requires GOOGLE_APPLICATION_CREDENTIALS or metadata server and PROJECT_ID
+// The GCP SA must have k8s api permission.
 func TestK8S(t *testing.T) {
 	os.Mkdir("../../out", 0775)
 	os.Chdir("../../out")
@@ -38,8 +39,9 @@ func TestK8S(t *testing.T) {
 	defer cf()
 
 	kr := mesh.New()
+
+	// If running in GCP, get ProjectId from meta
 	configFromEnvAndMD(ctx, kr)
-	// ADC or runner having permissions are required
 
 	projectID := kr.ProjectId
 	if projectID == "" {
