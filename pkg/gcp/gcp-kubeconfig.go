@@ -90,12 +90,8 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 		kr.ProjectNumber = os.Getenv("PROJECT_NUMBER")
 	}
 
-	// If ADC is set, we will only use the env variables. Else attempt to init from metadata server.
-	if os.Getenv("APPLICATION_DEFAULT_CREDENTIALS") != "" {
-		return
-	}
-
 	t0 := time.Now()
+	var gsa string
 	if metadata.OnGCE() {
 		// TODO: detect if the cluster is k8s from some env ?
 		// If ADC is set, we will only use the env variables. Else attempt to init from metadata server.
@@ -104,28 +100,28 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 			kr.ProjectId = metaProjectId
 		}
 
-		//instanceID, _ := metadata.InstanceID()
+		//instanceID, _ := metadata.InstanceID() // 00bf...f23
 		//instanceName, _ := metadata.InstanceName()
 		//zone, _ := metadata.Zone()
-		//pAttr, _ := metadata.ProjectAttributes()
-		//hn, _ := metadata.Hostname()
-		//iAttr, _ := metadata.InstanceAttributes()
+		//pAttr, _ := metadata.ProjectAttributes() //
+		//hn, _ := metadata.Hostname() //
+		//iAttr, _ := metadata.InstanceAttributes() //  zone us-central1-1
 
-		email, _ := metadata.Email("default")
-		// In CloudRun: Additional metadata: iid 00bf4b...f23 iname  iattr [] zone us-central1-1 hostname  pAttr [] email k8s-fortio@wlhe-cr.iam.gserviceaccount.com
+		gsa, _ = metadata.Email("default")
 
 		//log.Println("Additional metadata:", "iid", instanceID, "iname", instanceName, "iattr", iAttr,
 		//	"zone", zone, "hostname", hn, "pAttr", pAttr, "email", email)
 
 		if kr.Namespace == "" {
-			if strings.HasPrefix(email, "k8s-") {
-				parts := strings.Split(email[4:], "@")
+			if strings.HasPrefix(gsa, "k8s-") {
+				parts := strings.Split(gsa[4:], "@")
 				kr.Namespace = parts[0]
 				if mesh.Debug {
-					log.Println("Defaulting Namespace based on email: ", kr.Namespace, email)
+					log.Println("Defaulting Namespace based on GSA: ", kr.Namespace, gsa)
 				}
 			}
 		}
+
 		var err error
 		if kr.InCluster && kr.ClusterName == "" {
 			kr.ClusterName, err = metadata.Get("instance/attributes/cluster-name")
@@ -143,11 +139,28 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 		if kr.InstanceID == "" {
 			kr.InstanceID, _ = metadata.InstanceID()
 		}
-		if mesh.Debug {
-			log.Println("Configs from metadata ", time.Since(t0))
-		}
-		log.Println("Running as GSA ", email, kr.ProjectId, kr.ProjectNumber, kr.InstanceID, kr.ClusterLocation)
 	}
+
+	if kr.Namespace == "" {
+		// Default convention for project-as-namespace:
+		// PREFIX-CONFIG_PROJECT-NAMESPACE-SUFFIX
+		// Pid may have lowercase letters/digits/hyphens - mostly DNS conventions.
+		pidparts := strings.Split(kr.ProjectId, "-")
+		if len(pidparts) > 2 {
+			kr.Namespace = pidparts[len(pidparts) - 2]
+			if mesh.Debug {
+				log.Println("Defaulting Namespace based on project ID: ", kr.Namespace, kr.ProjectId)
+			}
+		}
+	}
+
+	log.Println("GCP config ",
+		"gsa", gsa,
+		"cluster", kr.ProjectId + "/" + kr.ClusterLocation + "/" + kr.ClusterName,
+		"projectNumber", kr.ProjectNumber,
+		"iid", kr.InstanceID,
+		"location", kr.ClusterLocation,
+		"sinceStart", time.Since(t0))
 }
 
 func RegionFromMetadata() (string, error) {

@@ -424,6 +424,7 @@ func (kr *KRun) StartIstioAgent() error {
 			} else {
 				log.Println("Wait err ", err)
 			}
+			kr.Exit(1)
 		}
 		kr.Exit(0)
 	}()
@@ -464,10 +465,23 @@ func addIfMissing(env []string, key, val string) []string {
 
 func (kr *KRun) Exit(code int) {
 	if kr.agentCmd != nil && kr.agentCmd.Process != nil {
+		kr.agentCmd.Process.Signal(syscall.SIGTERM)
+	}
+	if kr.appCmd != nil && kr.appCmd.Process != nil {
+		kr.agentCmd.Process.Signal(syscall.SIGTERM)
+	}
+	for _, a := range kr.Children {
+		a.Process.Signal(syscall.SIGTERM)
+	}
+	time.Sleep(5 * time.Second)
+	if kr.agentCmd != nil && kr.agentCmd.Process != nil {
 		kr.agentCmd.Process.Kill()
 	}
 	if kr.appCmd != nil && kr.appCmd.Process != nil {
 		kr.appCmd.Process.Kill()
+	}
+	for _, a := range kr.Children {
+		a.Process.Kill()
 	}
 	os.Exit(code)
 }

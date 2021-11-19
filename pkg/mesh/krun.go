@@ -127,6 +127,7 @@ type KRun struct {
 	// TODO: replace with Workloadlocation. Config cluster location not used.
 	ClusterLocation string
 
+	Children 	[]*exec.Cmd
 	agentCmd    *exec.Cmd
 	appCmd      *exec.Cmd
 	TrustDomain string
@@ -323,13 +324,6 @@ func (kr *KRun) initFromEnv() {
 		}
 	}
 
-	if kr.Namespace == "" {
-		kr.Namespace = "default"
-	}
-	if kr.Name == "" {
-		kr.Name = kr.Namespace
-	}
-
 	kr.Aud2File = map[string]string{}
 	prefix := "."
 	if os.Getuid() == 0 {
@@ -347,17 +341,11 @@ func (kr *KRun) initFromEnv() {
 	if kr.TrustDomain == "" {
 		kr.TrustDomain = os.Getenv("TRUST_DOMAIN")
 	}
-	if kr.TrustDomain == "" && kr.ProjectId != "" {
-		kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
-	}
 	// This can be used to provide a k8s-like environment, for apps that need it.
 	// It might be better to just generate a kubeconfig file and not pretend we are inside a cluster.
 	//if !kr.InCluster {
 	//	kr.Aud2File["api"] = prefix + "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	//}
-	if kr.KSA == "" {
-		kr.KSA = "default"
-	}
 
 	// TODO: stop using this, use ProxyConfig.DiscoveryAddress instead
 	if kr.XDSAddr == "" {
@@ -376,9 +364,24 @@ func (kr *KRun) initFromEnv() {
 	}
 
 	// Advanced options
-
 	// example dns:debug
 	kr.AgentDebug = kr.Config("XDS_AGENT_DEBUG", "")
+}
+
+// Set defaults, after all config was loaded, for missing configs
+func (kr *KRun) setDefaults() {
+	if kr.Namespace == "" {
+		kr.Namespace = "default"
+	}
+	if kr.Name == "" {
+		kr.Name = kr.Namespace
+	}
+	if kr.TrustDomain == "" && kr.ProjectId != "" {
+		kr.TrustDomain = kr.ProjectId + ".svc.id.goog"
+	}
+	if kr.KSA == "" {
+		kr.KSA = "default"
+	}
 }
 
 func (kr *KRun) LoadConfig(ctx context.Context) error {
@@ -404,6 +407,8 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 	if kr.PostConfigLoad != nil {
 		kr.PostConfigLoad(ctx, kr)
 	}
+
+	kr.setDefaults()
 
 	err := kr.InitCertificates(ctx, WorkloadCertDir)
 	if err != nil {
@@ -585,8 +590,10 @@ func (kr *KRun) Signals() {
 		if kr.appCmd != nil {
 			kr.appCmd.Process.Signal(s)
 		}
+		for _, a := range kr.Children {
+			a.Process.Signal(s)
+		}
 	}()
-
 }
 
 // GetTrafficDirectorIPTablesEnvVars returns env vars needed for iptables interception for TD
@@ -597,3 +604,4 @@ func (kr *KRun) GetTrafficDirectorIPTablesEnvVars() []string {
 func (kr *KRun) PrepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
 	return kr.prepareTrafficDirectorBootstrap(templatePath, outputPath)
 }
+

@@ -92,15 +92,6 @@ func InitDebug(kr *mesh.KRun) {
 		}
 	}
 
-	//keys := ""
-	//for k, v := range sshCM {
-	//	if strings.HasPrefix(k, "authorized_key") {
-	//		keys = keys + string(v) + "\n"
-	//	}
-	//}
-	//err = os.WriteFile("./var/run/secrets/sshd/authorized_keys", []byte(keys), 0700)
-
-
 	// /usr/sbin/sshd -p 15022 -e -D -h ~/.ssh/ec-key.pem
 	// -f config
 	// -c host_cert_file
@@ -119,10 +110,11 @@ func InitDebug(kr *mesh.KRun) {
 			"-D")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	kr.Children = append(kr.Children, cmd)
 
 	go func() {
 		err := cmd.Start()
-		log.Println(err)
+		log.Println("sshd exit", "err", err, "state", cmd.ProcessState)
 	}()
 
 }

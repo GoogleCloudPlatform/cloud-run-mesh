@@ -95,7 +95,7 @@ func main() {
 
 	kr.StartApp()
 
-	if os.Getenv("APP_PORT") != "-" {
+	if os.Getenv("APP_PORT") != "-" && len(os.Args) > 1 {
 		err = kr.WaitTCPReady("127.0.0.1:8080", 10*time.Second)
 		if err != nil {
 			log.Fatal("Timeout waiting for app", err)
