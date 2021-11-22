@@ -28,4 +28,4 @@ resources:
 images:
   - name: gcr.io/wlhe-cr/krun/gate
     newTag: ${TAG}
-    newName: ${DOCKER_REPO}/gate
+    newName: ${REPO}/gate

@@ -43,12 +43,9 @@ export TAG
 # Default repo for pulling images is in the project.
 REPO?=gcr.io/${PROJECT_ID}
 
-DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
-export DOCKER_REPO
+KRUN_IMAGE?=${REPO}/krun:${TAG}
 
-KRUN_IMAGE?=${DOCKER_REPO}:${TAG}
-
-HGATE_IMAGE?=${DOCKER_REPO}/gate:${TAG}
+HGATE_IMAGE?=${REPO}/gate:${TAG}
 
 WORKLOAD_NAME?=fortio-cr
 WORKLOAD_NAMESPACE?=fortio
@@ -123,6 +120,12 @@ docker/hgate:
 
 docker/krun:
 	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
+	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden-distroless -t ${KRUN_IMAGE}-distroless
+
+# TODO: use crane
+docker/testapp:
+	cd samples/existingbase && time docker build ${OUT}/docker-krun -f Dockerfile --build-arg=BASE=${KRUN_IMAGE}-distroless -t ${REPO}/httpbin:${TAG}-distroless
+	#cd samples/distroless && time docker build ${OUT}/docker-krun -f Dockerfile --build-arg=BASE=${KRUN_IMAGE}-distroless -t ${REPO}/app:${TAG}-distroless
 
 test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
 test/e2e:
@@ -138,6 +141,7 @@ push/hgate:
 
 push/krun:
 	docker push ${KRUN_IMAGE}
+	docker push ${KRUN_IMAGE}-distroless
 
 push/fortio:
 	(cd samples/fortio; make push)
@@ -193,16 +197,20 @@ pod2cr:
 
 ################# Testing / local dev #################
 # For testing/dev in local docker
+PORT_PREFIX ?= 1600
 
 docker/_run: ADC?=${HOME}/.config/gcloud/legacy_credentials/$(shell gcloud config get-value core/account)/adc.json
 docker/_run:
-	docker run -it --rm \
-		-e PROJECT_ID=${PROJECT_ID} \
+	docker run -it --name app --rm \
+		--cap-add=NET_ADMIN \
+ 	    -p 127.0.0.1:${PORT_PREFIX}0:15000 \
+    	-p 127.0.0.1:${PORT_PREFIX}9:15009 \
+ 		-e PROJECT_ID=${PROJECT_ID} \
 		-e GOOGLE_APPLICATION_CREDENTIALS=/var/run/secrets/google/google.json \
 		-v ${ADC}:/var/run/secrets/google/google.json:ro \
 		${_RUN_EXTRA} \
 		${_RUN_IMAGE} \
-	   /bin/bash
+	   ${_RUN_CMD}
 
 # 		-e CLUSTER_NAME=${CLUSTER_NAME} \
   #		-e CLUSTER_LOCATION=${CLUSTER_LOCATION} \
@@ -216,13 +224,19 @@ docker/run-mcp:
 docker/run-xds-adc:
 	_RUN_EXTRA="-e XDS_ADDR=istiod.wlhe.i.webinf.info:443"   _RUN_IMAGE=${KRUN_IMAGE} $(MAKE) docker/_run
 
+docker/run-testapp:
+	_RUN_EXTRA="" _RUN_CMD="" _RUN_IMAGE=${REPO}/app:${TAG}-distroless $(MAKE) docker/_run
+
+docker/run-httpbin:
+	_RUN_EXTRA="" _RUN_CMD="" _RUN_IMAGE=${REPO}/httpbin:${TAG}-distroless $(MAKE) docker/_run
+
 # Run hgate in a local docker container, for testing. Will connect to the cluster.
 #
 # ISTIO_META_INTERCEPTION_MODE disable interception (not using it).
 # DISABLE_ENVOY also disables envoy - only using the cert part in istio-agent
 docker/run-hgate:
 	_RUN_EXTRA="-e DISABLE_ENVOY=true -e ISTIO_META_INTERCEPTION_MODE=NONE -p 15441:15441" \
- 	_RUN_IMAGE=${HGATE_IMAGE}  \
+ 	_RUN_IMAGE=${HGATE_IMAGE}  _RUN_CMD=/bin/bash \
  		$(MAKE) docker/_run
 
 # Run without ADC, only kubeconfig
