@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package mesh
+package mesh_test
 
 import (
-	context2 "context"
+	"context"
+	"log"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	// Required for k8s client to link in the authenticator
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
@@ -31,9 +34,15 @@ func TestK8S(t *testing.T) {
 	os.Mkdir("../../../out", 0775)
 	os.Chdir("../../../out")
 
-	kr := New()
+	kr := mesh.New()
+	ctx := context.Background()
 
-	err := kr.LoadConfig(context2.Background())
+	err := gcp.InitGCP(ctx, kr)
+	if err != nil {
+		log.Fatal("Failed to find K8S ", time.Since(kr.StartTime), kr, os.Environ(), err)
+	}
+
+	err = kr.LoadConfig(ctx)
 	if err != nil {
 		t.Skip("Failed to connect to GKE, missing kubeconfig ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}

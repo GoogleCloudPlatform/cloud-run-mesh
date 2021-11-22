@@ -9,7 +9,13 @@ OUT?=${ROOT_DIR}/../out/krun
 
 -include .local.mk
 
-PROJECT_ID?=wlhe-cr
+# The CI/CD infra uses:
+# wlhe-cr project, clusters istio and asm-cr - for single project testing
+#
+# mcp-prod project as config project, with mesh-config-1 as config cluster
+# cloudrun-multiproject as workload project for MP, shared VPC testing.
+
+PROJECT_ID?=$(shell gcloud config get-value project)
 export PROJECT_ID
 
 
@@ -20,10 +26,6 @@ export CLUSTER_NAME
 CONFIG_PROJECT_ID?=${PROJECT_ID}
 # mesh-config-1
 CONFIG_CLUSTER_NAME?=${CLUSTER_NAME}
-
-# If the project is part of a multi-project, this is the hub id.
-FLEET_ID?=${CONFIG_PROJECT_ID}
-export FLEET_ID
 
 
 # Region where the cloudrun services are running
@@ -38,7 +40,7 @@ TAG ?= latest
 export TAG
 
 # Derived values
-
+# Default repo for pulling images is in the project.
 REPO?=gcr.io/${PROJECT_ID}
 
 DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
@@ -79,7 +81,8 @@ deploy/hgate:
 	kubectl apply -k ${OUT}/manifests
 	#kubectl apply -f manifests/hgate/
 	kubectl rollout restart deployment hgate -n istio-system
-	kubectl wait deployments hgate -n istio-system --for=condition=available
+	kubectl rollout status deployment hgate -n istio-system
+	#kubectl wait deployments hgate -n istio-system --for=condition=available
 
 # Remove the namespaces and apps, for testing 'clean install'
 cluster/clean:
@@ -98,6 +101,8 @@ build:
 	mkdir -p ${OUT}/bin/
 	mkdir -p ${OUT}/docker-hgate
 	mkdir -p ${OUT}/docker-krun
+	cp ./scripts/bootstrap_template.yaml ${OUT}/docker-krun/
+	cp ./scripts/iptables.sh ${OUT}/docker-krun/
 	CGO_ENABLED=0  time  go build -ldflags '-s -w -extldflags "-static"' -o ${OUT}/bin/ ./cmd/hbone/ ./cmd/krun ./cmd/hgate
 	ls -l ${OUT}/bin
 	mv ${OUT}/bin/krun ${OUT}/docker-krun
@@ -406,12 +411,13 @@ cas/setup:
 	# Google managed
 	gcloud privateca roots create --project "${CONFIG_PROJECT_ID}" mesh-selfsigned --pool mesh --location ${REGION} \
 		--auto-enable \
-        --subject "CN=${PROJECT_ID}, O=${FLEET_ID}"
+        --subject "CN=${PROJECT_ID}, O=${CONFIG_PROJECT_ID}"
 
+	# In multi-project mode, workloads will still get a K8S token from the config project - which is exchanged with a certificate
 	gcloud privateca pools --project "${CONFIG_PROJECT_ID}" add-iam-policy-binding mesh \
         --project "${CONFIG_PROJECT_ID}" \
         --location "${REGION}" \
-        --member "group:${FLEET_ID}.svc.id.goog:/allAuthenticatedUsers/" \
+        --member "group:${CONFIG_PROJECT_ID}.svc.id.goog:/allAuthenticatedUsers/" \
         --role "roles/privateca.workloadCertificateRequester"
 
 # Setup the config cluster to use workload certificates.

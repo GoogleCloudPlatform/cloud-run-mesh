@@ -18,12 +18,9 @@ import (
 	"context"
 	"log"
 	"net"
-	"os"
 	"strings"
 	"time"
 
-	"cloud.google.com/go/compute/metadata"
-	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
@@ -40,6 +37,9 @@ type MeshConnector struct {
 
 	Namespace     string
 	ConfigMapName string
+
+	CAPool string
+	CASRoots string
 
 	stop     chan struct{}
 	Services map[string]*corev1.Service
@@ -63,30 +63,18 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	kr := sg.Mesh
 
 	// Locate a k8s cluster, load configs from env and from existing mesh-env.
+	// This will load the existing mesh-env, if it exists.
 	err := kr.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}
 
-	// If not explicitly disabled, attempt to find MCP tenant ID and enable MCP
-	if kr.MeshTenant != "-" {
-		err = sg.FindTenant(ctx)
-		if err != nil {
-			return err
-		}
-	}
-	// If ProjectNumber used for P4SA not set, attempt to get it from ProjectID and fallback to metadata server
-	if kr.ProjectNumber == "" && kr.ProjectId != "" {
-		kr.ProjectNumber = gcp.ProjectNumber(kr.ProjectId)
-		log.Println("Got project number from GCP API", kr.ProjectNumber)
-	}
-	if kr.ProjectNumber == ""  {
-		// If project Id explicitly set, and not same as what metadata reports - fallback to getting it from GCP
-		kr.ProjectNumber, _ = metadata.NumericProjectID()
-	}
+	sg.InitMeshEnv(ctx)
+	sg.InitMeshEnvGCP(ctx)
 
-	// Default the XDSAddr for this instance to the service created by the hgate install.
+	// Default the XDSAddr for the envoy we start to the service created by the hgate install.
 	// istiod.istio-system may not be created if 'revision install' is used.
+	// This is only used if we operate in 'proxyless' mode in GCP, or as a sidecar to istiod
 	if kr.XDSAddr == "" &&
 		(kr.MeshTenant == "" || kr.MeshTenant == "-") {
 		// Explicitly set XDSAddr, the gate should run in the same cluster
@@ -107,14 +95,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 		if err != nil {
 			return err
 		}
-	}
-
-	citadelRoot, err := sg.GetCARoot(ctx)
-	if err != nil {
-		return err
-	}
-	if citadelRoot != "" {
-		kr.CitadelRoot = citadelRoot
 	}
 
 	sg.NewWatcher()
@@ -175,97 +155,6 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	return nil
 }
 
-func (sg *MeshConnector) GetCARoot(ctx context.Context) (string, error) {
-	// TODO: depending on error, move on or report a real error
-	kr := sg.Mesh
-	cm, err := kr.GetCM(ctx, "istio-system", "istio-ca-root-cert")
-	if err != nil {
-		if mesh.Is404(err) {
-			return "", nil
-		}
-		return "", err
-	} else {
-		// normally mounted to /var/run/secrets/istio
-		rootCert := cm["root-cert.pem"]
-		if rootCert == "" {
-			return "", nil
-		} else {
-			return rootCert, nil
-		}
-	}
-}
-
-// FindTenant will try to find the XDSAddr using in-cluster info.
-// This is called after K8S client has been initialized.
-//
-// For MCP, will expect a config map named 'env-asm-managed'
-// For in-cluster, we'll lookup the connector's LB, which points to istio.istio-system.svc
-//
-// This depends on MCP and Istiod internal configs - the config map may set with the XDS_ADDR and associated configs, in
-// which case this will not be called.
-func (sg *MeshConnector) FindTenant(ctx context.Context) error {
-	kr := sg.Mesh
-	if kr.ProjectNumber == "" {
-		log.Println("MCP requires PROJECT_NUMBER, attempting to use in-cluster")
-		return nil
-	}
-	cmname := os.Getenv("MCP_CONFIG")
-	if cmname == "" {
-		cmname = "env-asm-managed"
-	}
-	// TODO: find default tag, label, etc.
-	// Current code is written for MCP, use XDS_ADDR explicitly
-	// otherwise.
-	s, err := kr.Client.CoreV1().ConfigMaps("istio-system").Get(ctx,
-		cmname, metav1.GetOptions{})
-	if err != nil {
-		if mesh.Is404(err) {
-			return nil
-		}
-		return err
-	}
-
-	kr.MeshTenant = s.Data["CLOUDRUN_ADDR"]
-	log.Println("Istiod MCP discovered ", kr.MeshTenant, kr.XDSAddr,
-		kr.ProjectId, kr.ProjectNumber, kr.TrustDomain)
-
-	return nil
-}
-
-func (sg *MeshConnector) updateMeshEnv(ctx context.Context) error {
-	cmAPI := sg.Mesh.Client.CoreV1().ConfigMaps(sg.Namespace)
-	cm, err := cmAPI.Get(ctx, "mesh-env", metav1.GetOptions{})
-	if err != nil {
-		if !mesh.Is404(err) {
-			return err
-		}
-		// Not found, create:
-		cm = &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "mesh-env",
-				Namespace: "istio-system",
-			},
-			Data: map[string]string{},
-		}
-		sg.Mesh.SaveToMap(cm.Data)
-		_, err = cmAPI.Create(ctx, cm, metav1.CreateOptions{})
-		if err != nil {
-			log.Println("Failed to update config map, skipping ", err)
-		}
-		return nil
-	}
-
-	if !sg.Mesh.SaveToMap(cm.Data) {
-		return nil
-	}
-	_, err = cmAPI.Update(ctx, cm, metav1.UpdateOptions{})
-	if err != nil {
-		log.Println("Failed to update config map, skipping ", err)
-	} else {
-		log.Println("Update mesh env with defaults")
-	}
-	return nil
-}
 
 // Wait for the hgate and internal hgate service, set the config
 func (sg *MeshConnector) WaitService(ctx context.Context) error {

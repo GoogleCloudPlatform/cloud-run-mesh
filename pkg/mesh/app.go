@@ -16,6 +16,8 @@ package mesh
 
 import (
 	"errors"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -25,6 +27,13 @@ import (
 	"strings"
 	"syscall"
 	"time"
+)
+
+const (
+	serverStateKey        = "server.state"
+	serverStateCheckRegex = "^server.state"
+	listenerCheckKey      = "listener_manager.workers_started"
+	listenerCheckRegex    = "^listener_manager.workers_started"
 )
 
 // StartApp uses the reminder of the command line to exec an app, using K8S_UID as UID, if present.
@@ -130,3 +139,68 @@ func (kr *KRun) WaitHTTPReady(url string, max time.Duration) error {
 	}
 }
 
+// WaitEnvoyReady waits for envoy to be ready until max is reached, otherwise returns a non-nil error.
+func (kr *KRun) WaitEnvoyReady(addr string, max time.Duration) error {
+	t0 := time.Now()
+	for {
+		serverStateReady, serverStateErr := kr.envoyServerStateCheck(addr)
+		listenerReady, listenerErr := kr.envoyListenerWorkersStartedCheck(addr)
+		if serverStateErr == nil && listenerErr == nil && serverStateReady && listenerReady {
+			log.Println("Envoy is ready")
+			return nil
+		}
+
+		if time.Since(t0) > max {
+			return fmt.Errorf("Timeout waiting for ready from envoy")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (kr *KRun) envoyServerStateCheck(addr string) (bool, error) {
+	checkURL := fmt.Sprintf("http://%s/stats?used_only&filter=%s", addr, serverStateCheckRegex)
+	res, err := http.Get(checkURL)
+	if err != nil {
+		return false, fmt.Errorf("Unable to check envoy server state because of %s", err)
+	}
+	defer res.Body.Close()
+	return kr.processHealthCheckResponse(res, serverStateKey, "0") // 0 indicates live.
+}
+
+func (kr *KRun) envoyListenerWorkersStartedCheck(addr string) (bool, error) {
+	checkURL := fmt.Sprintf("http://%s/stats?used_only&filter=%s", addr, listenerCheckRegex)
+	res, err := http.Get(checkURL)
+	if err != nil {
+		return false, fmt.Errorf("Unable to check envoy listener worker state because of : %s", err)
+	}
+	defer res.Body.Close()
+	return kr.processHealthCheckResponse(res, listenerCheckKey, "1") // 1 indicates listener works have started.
+}
+
+// Checks the res has the following structure: "key: val" where key and val should be as specified.
+func (kr *KRun) processHealthCheckResponse(res *http.Response, key string, val string) (bool, error) {
+	if res == nil || res.StatusCode != 200 {
+		return false, fmt.Errorf("Unable to check envoy for %s", key)
+	}
+
+	rawResponse, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return false, fmt.Errorf("Unable to check envoy for %s because of %s", key, err)
+	}
+
+	response := string(rawResponse)
+	splits := strings.Split(response, ":")
+	if len(splits) != 2 {
+		return false, nil
+	}
+
+	// Check key
+	if strings.TrimSpace(splits[0]) != key {
+		return false, nil
+	}
+	// Check val
+	if strings.TrimSpace(splits[1]) != val {
+		return false, nil
+	}
+	return true, nil
+}

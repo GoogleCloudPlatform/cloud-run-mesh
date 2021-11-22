@@ -53,10 +53,10 @@ func main() {
 
 	kr := mesh.New()
 
-	kr.VendorInit = gcp.InitGCP
-
 	ctx, cf := context.WithTimeout(context.Background(), 10000*time.Second)
 	defer cf()
+
+	gcp.InitGCP(ctx, kr)
 
 	// Use kubeconfig or gcp to find the cluster
 	err := kr.LoadConfig(ctx)

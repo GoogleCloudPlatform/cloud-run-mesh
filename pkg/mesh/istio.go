@@ -156,12 +156,12 @@ func (kr *KRun) StartIstioAgent() error {
 		os.Chown(prefix+"/etc/istio/proxy", 1337, 1337)
 	}
 
+	// Pilot agent expects this file, containing citadel roots. Will be used to connect to the XDS server, and as
+	// default root CA.
 	if kr.CitadelRoot != "" {
 		err := ioutil.WriteFile(prefix+"/var/run/secrets/istio/root-cert.pem", []byte(kr.CitadelRoot), 0755)
 		if err != nil {
-			log.Println("Failed to write citadel root", err)
-		} else {
-			log.Println("Saved Istiod Root CAs: ", prefix + "/var/run/secrets/istio/root-cert.pem")
+			log.Println("Failed to write citadel root", "rootCAFile", prefix + "/var/run/secrets/istio/root-cert.pem", "error", err)
 		}
 	}
 
@@ -227,6 +227,14 @@ func (kr *KRun) StartIstioAgent() error {
 
 	// K_REVISION (ex: fortio-cr-00011-duq) and metadata.
 	podName := os.Getenv("K_REVISION")
+	hn := os.Getenv("HOSTNAME")
+	if hn == "" {
+		hn, _ = os.Hostname()
+		hnp := strings.Split(hn, ".")
+		if len(hnp) > 0 {
+			hn = hnp[0]
+		}
+	}
 	if podName != "" {
 		if kr.InstanceID == "" {
 			podName = podName + "-" + strconv.Itoa(time.Now().Second())
@@ -235,16 +243,14 @@ func (kr *KRun) StartIstioAgent() error {
 		} else {
 			podName = podName + "-" + kr.InstanceID
 		}
-		log.Println("Setting POD_NAME from K_REVISION ", podName)
 
 		if kr.Rev == "" {
 			kr.Rev = podName
 		}
-	} else if os.Getenv("HOSTNAME") != "" {
+	} else if hn != "" {
 		podName = os.Getenv("HOSTNAME")
-		log.Println("Setting POD_NAME from HOSTNAME", podName)
 	} else {
-		podName = kr.Name + "-" + strconv.Itoa(time.Now().Second())
+		podName = kr.Name + "-" + "-" + strconv.Itoa(time.Now().Second())
 		log.Println("Setting POD_NAME from name, missing instance ", podName)
 	}
 	// Some default value.
@@ -318,6 +324,10 @@ func (kr *KRun) StartIstioAgent() error {
 	// Gets translated to "APP_CONTAINERS" metadata, used to identify the container.
 	env = addIfMissing(env, "ISTIO_META_APP_CONTAINERS", "cloudrun")
 
+	if kr.X509KeyPair != nil {
+		// Loaded from workload cert file - no need to use citadel or mesh CA.
+		env = addIfMissing(env, "CA_PROVIDER", "GoogleGkeWorkloadCertificate")
+	}
 	// If MCP is available, and PROXY_CONFIG is not set explicitly
 	if kr.MeshTenant != "" &&
 		kr.MeshTenant != "-" &&
@@ -352,7 +362,7 @@ func (kr *KRun) StartIstioAgent() error {
 		if _, err := os.Stat("/var/lib/istio/envoy/envoy_bootstrap_tmpl.json"); os.IsNotExist(err) {
 			env = append(env, "DISABLE_ENVOY=true")
 		} else {
-			env = append(env, "ISTIO_BOOTSTRAP", "/var/lib/istio/envoy/envoy_bootstrap_tmpl.json")
+			env = append(env, "ISTIO_BOOTSTRAP=/var/lib/istio/envoy/envoy_bootstrap_tmpl.json")
 		}
 	}
 
@@ -394,6 +404,8 @@ func (kr *KRun) StartIstioAgent() error {
 	cmd.Stderr = os.Stderr
 	os.MkdirAll(prefix+"/var/lib/istio/envoy/", 0700)
 
+	saveLaunchInfo(cmd)
+
 	go func() {
 		err := cmd.Start()
 		if err != nil {
@@ -407,13 +419,40 @@ func (kr *KRun) StartIstioAgent() error {
 		}
 		err = cmd.Wait()
 		if err != nil {
-			log.Println("Wait err ", err)
+			if cmd.ProcessState.ExitCode() == 255 {
+				log.Println("Wait err ", err, cmd.Env)
+			} else {
+				log.Println("Wait err ", err)
+			}
+			kr.Exit(1)
 		}
 		kr.Exit(0)
 	}()
 
-	// TODO: wait for agent to be ready
 	return nil
+}
+
+// For troubleshooting, generate a file with the env and command.
+// This can also be used for running krun as a periodic job instead of as a launcher
+// Compile with  -gcflags  "all=-N -l"
+func saveLaunchInfo(cmd *exec.Cmd) {
+	b := bytes.Buffer{}
+	for _, e := range cmd.Env {
+		kv := strings.SplitN(e, "=", 2)
+		if len(kv) == 2 {
+			b.Write([]byte("export " + kv[0] + "=" + "'" + kv[1] + "'\n"))
+		}
+	}
+	b.Write([]byte{'\n'})
+	b.Write([]byte("dlv --listen=127.0.0.1:44997 --headless=true --api-version=2 --check-go-version=false --only-same-user=false exec "))
+	b.Write([]byte(cmd.Args[0]))
+	b.Write([]byte(" -- "))
+	for _, e := range cmd.Args[1:] {
+		b.Write([]byte(e))
+		b.Write([]byte{' '})
+	}
+	b.Write([]byte{'\n'})
+	ioutil.WriteFile("./var/lib/istio/envoy/cmd.sh", b.Bytes(), 0700)
 }
 
 func addIfMissing(env []string, key, val string) []string {
@@ -426,10 +465,23 @@ func addIfMissing(env []string, key, val string) []string {
 
 func (kr *KRun) Exit(code int) {
 	if kr.agentCmd != nil && kr.agentCmd.Process != nil {
+		kr.agentCmd.Process.Signal(syscall.SIGTERM)
+	}
+	if kr.appCmd != nil && kr.appCmd.Process != nil {
+		kr.agentCmd.Process.Signal(syscall.SIGTERM)
+	}
+	for _, a := range kr.Children {
+		a.Process.Signal(syscall.SIGTERM)
+	}
+	time.Sleep(5 * time.Second)
+	if kr.agentCmd != nil && kr.agentCmd.Process != nil {
 		kr.agentCmd.Process.Kill()
 	}
 	if kr.appCmd != nil && kr.appCmd.Process != nil {
 		kr.appCmd.Process.Kill()
+	}
+	for _, a := range kr.Children {
+		a.Process.Kill()
 	}
 	os.Exit(code)
 }
