@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 )
@@ -51,6 +52,7 @@ AcceptEnv LANG LC_*
 PrintMotd no
 
 Subsystem	sftp	/usr/lib/openssh/sftp-server
+PidFile %s/sshd.pid
 `
 
 type SSHDConfig struct {
@@ -62,7 +64,7 @@ var (
 )
 
 func InitDebug(kr *mesh.KRun) {
-	sshCM, err := kr.GetSecret(context.Background(), kr.Namespace, "sshdebug")
+	sshCM, err := kr.Cfg.GetSecret(context.Background(), kr.Namespace, "sshdebug")
 	if err != nil {
 		log.Println("SSH debug disabled, missing sshdebug secret ", err)
 		return
@@ -77,27 +79,18 @@ func InitDebug(kr *mesh.KRun) {
 		return
 	}
 
-	os.Mkdir("./var/run/secrets", 0755)
 
-	base := "./var/run/secrets/" + "sshd"
-	os.Mkdir(base, 0700)
+	pwd, _ := os.Getwd()
+	sshd := pwd + "/var/run/secrets/sshd"
+	os.MkdirAll(sshd, 0700)
 
 	for k, v := range sshCM {
-		err = os.WriteFile(base + k, v, 0700)
+		err = os.WriteFile(sshd + "/" + k, v, 0700)
 		if err != nil {
 			log.Println("Secret write error", k, err)
 			return
 		}
 	}
-
-	//keys := ""
-	//for k, v := range sshCM {
-	//	if strings.HasPrefix(k, "authorized_key") {
-	//		keys = keys + string(v) + "\n"
-	//	}
-	//}
-	//err = os.WriteFile("./var/run/secrets/sshd/authorized_keys", []byte(keys), 0700)
-
 
 	// /usr/sbin/sshd -p 15022 -e -D -h ~/.ssh/ec-key.pem
 	// -f config
@@ -108,20 +101,20 @@ func InitDebug(kr *mesh.KRun) {
 	// -p or -o Port
 	//
 
-	pwd, _ := os.Getwd()
-	sshd := pwd + "/var/run/secrets"
-	os.Mkdir("./var/run/secrets", 0755)
-	os.Mkdir("./var/run/secrets/sshd", 0700)
-
 	if _, err := os.Stat(sshd + "/sshd_config"); os.IsNotExist(err) {
-		ioutil.WriteFile(sshd+"/sshd_confing", []byte(fmt.Sprintf(sshdConfig, sshd, sshd)), 0700)
+		ioutil.WriteFile(sshd+"/sshd_config", []byte(fmt.Sprintf(sshdConfig, sshd, sshd, sshd)), 0700)
 	}
-
-	_, err = os.StartProcess("/usr/sbin/sshd",
-		[]string{"-f", sshd + "/sshd_config",
+	cmd := exec.Command("/usr/sbin/sshd",
+		"-f", sshd + "/sshd_config",
 			"-e",
-			"-D",
-			//"-p", strconv.Itoa(15022),
-		}, nil)
+			"-D")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	kr.Children = append(kr.Children, cmd)
+
+	go func() {
+		err := cmd.Start()
+		log.Println("sshd exit", "err", err, "state", cmd.ProcessState)
+	}()
 
 }
