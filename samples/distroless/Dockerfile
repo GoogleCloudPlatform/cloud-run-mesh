@@ -13,7 +13,5 @@ COPY --from=app /cert.* /
 COPY --from=debug /busybox/ /busybox
 
 ENV PATH=${PATH}:/busybox
-ENV ISTIO_META_ISTIO_VERSION=${ISTIO_META_ISTIO_VERSION}-cloudrun
 
-USER 0
 CMD ["/usr/local/bin/server"]

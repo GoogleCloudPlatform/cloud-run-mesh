@@ -20,5 +20,10 @@ COPY --from=app /usr/bin/fortio /usr/bin/fortio
 
 # Make sure the entrypoint is set to krun. Krun is built with 'ko', which uses a specific dir.
 ENTRYPOINT ["/usr/local/bin/krun"]
-# Normal application command
-CMD ["/usr/bin/fortio", "server", "-http-port=8080"]
+
+# Default ports:
+ENV PORTS=grpc:8079,http:8080,tcp-echo:8079
+
+# Normal application command.
+# Fortio supports HTTP and TCP proxy as well
+CMD ["/usr/bin/fortio", "server"]

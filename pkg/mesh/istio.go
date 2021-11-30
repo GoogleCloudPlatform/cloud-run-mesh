@@ -366,9 +366,10 @@ func (kr *KRun) StartIstioAgent() error {
 		}
 	}
 
-	// Generate grpc bootstrap - no harm, low cost
+	// Generate grpc bootstrap - no harm, low cost.
+	// TODO: New version of Istio does this automatically, will be removed
 	if os.Getenv("GRPC_XDS_BOOTSTRAP") == "" {
-		env = append(env, "GRPC_XDS_BOOTSTRAP=./var/run/grpc_bootstrap.json")
+		env = append(env, "GRPC_XDS_BOOTSTRAP=./etc/istio/proxy/grpc_bootstrap.json")
 	}
 	cmd := kr.agentCommand()
 	var stdout io.ReadCloser
@@ -521,9 +522,10 @@ func (kr *KRun) runIptablesSetup(env []string) error {
 		//"-z", "15006", - no inbound interception
 		"-u", "1337",
 		"-m", "REDIRECT",
-		"-i", "10.0.0.0/8", // all outbound captured
+		//"-i", "10.0.0.0/8", // all outbound captured
 		"-b", "", // disable all inbound redirection
 		// "-d", "15090,15021,15020", // exclude specific ports
+		"-o", "15008,15009", // Exclude ports from Envoy capture - hbone-h2, hbone-h2c
 		"-x", "")
 	cmd.Env = env
 	cmd.Dir = "/"

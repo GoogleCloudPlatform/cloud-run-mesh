@@ -69,7 +69,7 @@ func (kr *KRun) StartApp() {
 		cmd.Env = append(cmd.Env, e)
 	}
 	if os.Getenv("GRPC_XDS_BOOTSTRAP") == "" {
-		cmd.Env = append(cmd.Env, "GRPC_XDS_BOOTSTRAP=/var/run/grpc_bootstrap.json")
+		cmd.Env = append(cmd.Env, "GRPC_XDS_BOOTSTRAP=/etc/istio/proxy/grpc_bootstrap.json")
 	}
 	if kr.WhiteboxMode {
 		cmd.Env = append(cmd.Env, "HTTP_PROXY=127.0.0.1:15007")
