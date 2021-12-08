@@ -48,7 +48,7 @@ spec:
       containers:
         - name: istio-proxy
           # Istio injection should not override this
-          image: gcr.io/wlhe-cr/krun/gate:main
+          image: gcr.io/wlhe-cr/gate:main
           imagePullPolicy: Always
           env:
 #            - name: ENVOY_LOG_LEVEL

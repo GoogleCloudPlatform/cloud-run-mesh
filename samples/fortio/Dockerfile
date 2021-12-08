@@ -22,7 +22,9 @@ COPY --from=app /usr/bin/fortio /usr/bin/fortio
 ENTRYPOINT ["/usr/local/bin/krun"]
 
 # Default ports:
-ENV PORTS=grpc:8079,http:8080,tcp-echo:8079
+ENV PORT_grpc=8079
+ENV PORT_http=8080
+ENV PORT_tcp-echo=8079
 
 # Normal application command.
 # Fortio supports HTTP and TCP proxy as well

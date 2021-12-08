@@ -25,8 +25,8 @@ import (
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 
-	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -43,7 +43,7 @@ type MeshConnector struct {
 
 	stop     chan struct{}
 	Services map[string]*corev1.Service
-	EP       map[string]*discoveryv1beta1.EndpointSlice
+	EP       map[string]*discoveryv1.EndpointSlice
 }
 
 func New(kr *mesh.KRun) *MeshConnector {
@@ -51,7 +51,7 @@ func New(kr *mesh.KRun) *MeshConnector {
 		Mesh:          kr,
 		Namespace:     "istio-system",
 		ConfigMapName: "mesh-env",
-		EP:            map[string]*discoveryv1beta1.EndpointSlice{},
+		EP:            map[string]*discoveryv1.EndpointSlice{},
 		Services:      map[string]*corev1.Service{},
 		stop:          make(chan struct{}),
 	}
@@ -66,6 +66,7 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 	// This will load the existing mesh-env, if it exists.
 	err := kr.LoadConfig(ctx)
 	if err != nil {
+		log.Println("Failed to load config", "err", err)
 		return err
 	}
 

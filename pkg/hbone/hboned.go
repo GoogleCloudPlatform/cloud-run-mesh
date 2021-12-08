@@ -17,15 +17,13 @@ package hbone
 import (
 	"context"
 	"crypto/tls"
-	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,7 +55,6 @@ type HBone struct {
 
 	HTTPClientSystem *http.Client
 	HTTPClientMesh   *http.Client
-	TcpAddr          string
 
 	// Ports is the equivalent of container ports in k8s.
 	// Name follows the same conventions as Istio and should match the port name in the Service.
@@ -94,7 +91,6 @@ func New() *HBone {
 		Endpoints: map[string]*Endpoint{},
 		H2R:       map[string]http.RoundTripper{},
 		H2RConn:   map[*http2.ClientConn]string{},
-		TcpAddr:   "127.0.0.1:8080",
 		h2t:       h2,
 		Ports: 		 map[string]string{},
 		//&http2.Transport{
@@ -136,55 +132,47 @@ func (hac *HBoneAcceptedConn) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	t0 := time.Now()
 	var proxyErr error
 	defer func() {
-		log.Println(r.Method, r.URL, r.Proto, r.Host, r.RemoteAddr, time.Since(t0), proxyErr)
-
 		if r := recover(); r != nil {
-			fmt.Println("Recovered in hbone", r)
-
-			debug.PrintStack()
-
-			// find out exactly what the error was and set err
-			var err error
-
 			switch x := r.(type) {
-			case string:
-				err = errors.New(x)
 			case error:
-				err = x
-			default:
-				err = errors.New("Unknown panic")
-			}
-			if err != nil {
-				fmt.Println("ERRROR: ", err)
+				proxyErr = x
 			}
 		}
+		log.Println("hbone", "url", r.URL, "host", r.Host, "remote", r.RemoteAddr,
+			"dur", time.Since(t0), "err", proxyErr)
 	}()
 
 	// TODO: parse Envoy / hbone headers.
-	w.(http.Flusher).Flush()
 
-	// TCP proxy for SSH ( no mTLS, SSH has its own equivalent)
-	if r.RequestURI == "/_hbone/22" {
-		proxyErr = hac.hb.HandleTCPProxy(w, r.Body, "localhost:15022")
-		return
-	}
-	if r.RequestURI == "/_hbone/15003" {
-		proxyErr = hac.hb.HandleTCPProxy(w, r.Body, "localhost:15003")
-		return
-	}
-	if r.RequestURI == "/_hbone/tcp" {
-		proxyErr = hac.hb.HandleTCPProxy(w, r.Body, hac.hb.TcpAddr)
+	if strings.HasPrefix(r.RequestURI, "/_hbone/") {
+		// Force the headers to be sent.
+		w.(http.Flusher).Flush()
+		portName := r.RequestURI[8:]
+		switch portName {
+		case "15003":
+			// Default mTLS port.
+			proxyErr = hac.hb.HandleTCPProxy(w, r.Body, "127.0.0.1:15003")
+			return
+
+		case "22":
+			// TCP proxy for SSH ( no mTLS, SSH has its own equivalent)
+			proxyErr = hac.hb.HandleTCPProxy(w, r.Body, "127.0.0.1:15022")
+			return
+		}
+
+		val := hac.hb.Ports[portName]
+		if val != "" {
+			proxyErr = hac.hb.HandleTCPProxy(w, r.Body, val)
+			return
+		}
+		w.WriteHeader(404)
 		return
 	}
 
-	rh, pat := hac.hb.Mux.Handler(r)
-	if pat != "" {
-		rh.ServeHTTP(w, r)
-		return
-	}
+	// This is not a tunnel, but regular request.
 
-	// This is not a tunnel, but regular request. For test only - should be off once mTLS
-	// works properly.
+	// Make sure xfcc header is removed
+	r.Header.Del("x-forwarded-client-cert")
 	hac.hb.rp.ServeHTTP(w, r)
 }
 

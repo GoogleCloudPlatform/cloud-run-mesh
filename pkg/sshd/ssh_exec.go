@@ -492,17 +492,26 @@ func sftpHandler(sess *session) {
 func (srv Server) buildCmd(s *session) *exec.Cmd {
 	var cmd *exec.Cmd
 
-	if len(s.rawCmd) == 0 {
-		cmd = exec.Command(srv.Shell)
+	cmdArgs := strings.Split(s.rawCmd, " ")
+	if srv.Shell == "" {
+		if len(cmdArgs) == 1 {
+			cmd = exec.Command(cmdArgs[0])
+		} else {
+			cmd = exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		}
 	} else {
-		args := []string{"-c", s.rawCmd}
-		cmd = exec.Command(srv.Shell, args...)
+		if len(s.rawCmd) == 0 {
+			cmd = exec.Command(srv.Shell)
+		} else {
+			args := []string{"-c", s.rawCmd}
+			cmd = exec.Command(srv.Shell, args...)
+		}
 	}
 
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, s.env...)
 
-	fmt.Println(cmd.String())
+	//fmt.Println(cmd.String())
 	return cmd
 }
 

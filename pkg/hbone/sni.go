@@ -22,6 +22,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 )
 
 // Will start a SNI proxy, similar with Istio East-West or Gateway SNI router.
@@ -70,11 +71,21 @@ func (hb *HBone) HandleSNIConn(conn net.Conn) {
 	if hb.EndpointResolver != nil {
 		dst := hb.EndpointResolver(sni)
 		if dst != nil {
+			if Debug {
+				log.Println("SNI: start proxy", "sni", sni, "URL", dst.URL)
+			}
+			t0 := time.Now()
 			err = dst.Proxy(context.Background(), s, conn)
 			if err != nil {
-				log.Println("SNI: error connecting to proxy", sni, err)
+				log.Println("SNI: error connecting to proxy", "sni", sni, "error", err, "URL", dst.URL)
+			} else {
+				log.Println("SNI:done", "sni", sni, "URL", dst.URL, "dur", time.Since(t0))
 			}
+		} else {
+			log.Println("SNI: Missing destination", "sni", sni)
 		}
+	} else {
+		log.Println("SNI: Missing EndpointResolver", "sni", sni)
 	}
 }
 

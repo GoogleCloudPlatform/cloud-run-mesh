@@ -14,4 +14,8 @@ COPY --from=debug /busybox/ /busybox
 
 ENV PATH=${PATH}:/busybox
 
+ENV PORT_grpc=7070
+ENV PORT_tcp_echo=9090
+ENV startupProbe.http=http://127.0.0.1:8080/ready
+
 CMD ["/usr/local/bin/server"]
