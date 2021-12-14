@@ -196,7 +196,8 @@ deploy/testapp:
 	SERVICE=testapp IMAGE=${REPO}/testapp:${TAG}-distroless $(MAKE) deploy
 
 deploy/testapp-egress-all:
-	SERVICE=testapp-egress IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--vpc-egress=private-ranges-only $(MAKE) deploy
+	# Alternative: private-ranges-only, does not update.
+	SERVICE=testapp-egress IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--vpc-egress=all-traffic $(MAKE) deploy
 
 
 

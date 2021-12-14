@@ -25,8 +25,10 @@ options:
 # GOCACHE=/gocache
 
 # When creating trggers, replace the tag with either _PR_NUMBER, TAG_NAME or BRANCH_NAME
+# PR_NUMBER needs a prefix - TAG will have it
 substitutions:
   _TAG: tmp
+  _PR: ""
 
 steps:
   # About 50 sec, to isolte loading of the builder image
@@ -36,10 +38,10 @@ steps:
     waitFor:
       - "-"
     env:
-      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
-      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
-      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
-      - TAG=${_TAG}
+      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}${_PR}
+      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}${_PR}
+      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}${_PR}
+      - TAG=${_TAG}${_PR}
     args:
       - -c
       - |
@@ -51,9 +53,9 @@ steps:
       - "-"
     env:
       - PROJECT_ID=${PROJECT_ID}
-      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
-      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
-      - TAG=${_TAG}
+      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}${_PR}
+      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}${_PR}
+      - TAG=${_TAG}${_PR}
     args:
       - -c
       - |
@@ -64,9 +66,9 @@ steps:
     waitFor:
       - "push"
     env:
-      - TAG=${_TAG}
-      - GOLDEN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
-      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
+      - TAG=${_TAG}${_PR}
+      - GOLDEN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}${_PR}
+      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}${_PR}
     args:
       - -c
       - |
@@ -76,7 +78,7 @@ steps:
   - name: gcr.io/wlhe-cr/crm-builder
     id: test
     env:
-      - TAG=${_TAG}
+      - TAG=${_TAG}${_PR}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
@@ -93,8 +95,8 @@ steps:
   - name: gcr.io/wlhe-cr/crm-builder
     id: hgatedeploy
     env:
-      - TAG=${_TAG}
-      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
+      - TAG=${_TAG}${_PR}
+      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}${_PR}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
@@ -112,8 +114,8 @@ steps:
   - name: gcr.io/wlhe-cr/crm-builder
     entrypoint: /bin/sh
     env:
-      - TAG=${_TAG}
-      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
+      - TAG=${_TAG}${_PR}
+      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}${_PR}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
