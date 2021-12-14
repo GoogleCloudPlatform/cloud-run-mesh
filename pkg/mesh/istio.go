@@ -535,12 +535,12 @@ func (kr *KRun) runIptablesSetup(env []string) error {
 	    - 15090,15021,15020
 
 	*/
-	excludePorts := os.Getenv("OUTBOUND_PORTS_EXCLUDE")
-	if excludePorts != "" {
-		excludePorts = excludePorts + ","
-	}
+	outRange := kr.Config("OUTBOUND_IP_RANGES_INCLUDE", "10.0.0.0/8")
 	// Exclude ports from Envoy capture - hbone-h2, hbone-h2c
-	excludePorts = excludePorts + "15008,15009"
+	excludePorts := kr.Config("OUTBOUND_PORTS_EXCLUDE", "15008,15009")
+	if excludePorts != "15008,15009" {
+		excludePorts = excludePorts + ",15008,15009"
+	}
 
 	cmd := exec.Command("/usr/local/bin/pilot-agent",
 		"istio-iptables",
@@ -549,7 +549,7 @@ func (kr *KRun) runIptablesSetup(env []string) error {
 		"-u", "1337", // REQUIRED - code default is 128
 		//"-m", "REDIRECT", // default value
 		//"-i", "*", // OUTBOUND_IP_RANGES_INCLUDE
-		"-i", "10.0.0.0/8", // Alternative - only mesh traffic
+		"-i", outRange, // Alternative - only mesh traffic
 		// "-b", "", // disable all inbound redirection, default
 		// "-d", "15090,15021,15020", // exclude specific ports from inbound capture, if -b '*'
 		"-o", excludePorts,

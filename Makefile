@@ -195,10 +195,13 @@ deploy/fortio-debug:
 deploy/testapp:
 	SERVICE=testapp IMAGE=${REPO}/testapp:${TAG}-distroless $(MAKE) deploy
 
+# Currently broken, doesn't work.
 deploy/testapp-egress-all:
 	# Alternative: private-ranges-only, does not update.
 	SERVICE=testapp-egress IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--vpc-egress=all-traffic $(MAKE) deploy
 
+deploy/testapp-cas:
+	SERVICE=testapp-cas IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--set-env-vars="CAS=projects/mcp-prod/locations/us-central1/caPools/mesh" $(MAKE) deploy
 
 
 # Setup-sni deploys the in-cluster configs associated with the service

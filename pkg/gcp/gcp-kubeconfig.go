@@ -231,8 +231,8 @@ func PostConfigLoad(ctx context.Context, kr *mesh.KRun) error {
 
 	// TODO: only if mesh_env contains a WorkloadCertificateConfig with endpoint starting with //privateca.googleapis.com
 	// Errors results to fallback to pilot-agent and istio.
-	cas := kr.Config("CAS", "-")
-	if cas != "-" {
+	cas := kr.Config("CA_POOL", "")
+	if cas != "" {
 		kr.CSRSigner, err = NewCASCertProvider(cas, ol)
 	}
 	return err
