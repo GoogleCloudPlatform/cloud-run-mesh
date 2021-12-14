@@ -38,9 +38,6 @@ steps:
     waitFor:
       - "-"
     env:
-      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}${_PR}
-      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}${_PR}
-      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}${_PR}
       - TAG=${_TAG}${_PR}
     args:
       - -c
@@ -53,8 +50,6 @@ steps:
       - "-"
     env:
       - PROJECT_ID=${PROJECT_ID}
-      - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}${_PR}
-      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}${_PR}
       - TAG=${_TAG}${_PR}
     args:
       - -c
@@ -68,7 +63,6 @@ steps:
     env:
       - TAG=${_TAG}${_PR}
       - GOLDEN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}${_PR}
-      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}${_PR}
     args:
       - -c
       - |
@@ -96,7 +90,6 @@ steps:
     id: hgatedeploy
     env:
       - TAG=${_TAG}${_PR}
-      - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}${_PR}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
@@ -115,7 +108,6 @@ steps:
     entrypoint: /bin/sh
     env:
       - TAG=${_TAG}${_PR}
-      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}${_PR}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
