@@ -14,12 +14,13 @@ cloudrun:
         		  --service-account=${CLOUDRUN_SERVICE_ACCOUNT} \
                   --vpc-connector projects/${CONFIG_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
                  \
+                 ${RUN_EXTRA} \
                  --no-allow-unauthenticated \
                  --use-http2 \
                  --set-env-vars MESH_TENANT=- \
                  --set-env-vars=MESH=gke://${CONFIG_PROJECT_ID} \
         		 --set-env-vars="DEPLOY=$(shell date +%y%m%d-%H%M)" \
-                 --port 15009 \
+                 --port 15009  \
                  \
                  --image ${REPO}/testapp:${TAG}-distroless
 

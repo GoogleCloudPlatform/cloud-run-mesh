@@ -81,7 +81,7 @@ all-fortio: build docker/krun docker/fortio push/fortio deploy/fortio
 
 deploy/hgate:
 	mkdir -p ${OUT}/manifests
-	echo ${HGATE_IMAGE}
+	echo HGATE IMAGE: ${TAG} ${REPO} ${HGATE_IMAGE}
 	cat manifests/kustomization-tmpl.yaml | envsubst > ${OUT}/manifests/kustomization.yaml
 	cp -a manifests/hgate ${OUT}/manifests
 	kubectl apply -k ${OUT}/manifests
@@ -194,6 +194,11 @@ deploy/fortio-debug:
 
 deploy/testapp:
 	SERVICE=testapp IMAGE=${REPO}/testapp:${TAG}-distroless $(MAKE) deploy
+
+deploy/testapp-egress-all:
+	SERVICE=testapp-egress IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--vpc-egress=private-ranges-only $(MAKE) deploy
+
+
 
 # Setup-sni deploys the in-cluster configs associated with the service
 # Will be part of authregistration.

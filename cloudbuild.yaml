@@ -29,6 +29,7 @@ substitutions:
   _TAG: tmp
 
 steps:
+  # About 50 sec, to isolte loading of the builder image
   - name: gcr.io/wlhe-cr/crm-builder
     entrypoint: /bin/sh
     id: debug
@@ -38,6 +39,7 @@ steps:
       - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
       - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
       - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
+      - TAG=${_TAG}
     args:
       - -c
       - |
@@ -51,6 +53,7 @@ steps:
       - PROJECT_ID=${PROJECT_ID}
       - KRUN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
       - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
+      - TAG=${_TAG}
     args:
       - -c
       - |
@@ -61,6 +64,7 @@ steps:
     waitFor:
       - "push"
     env:
+      - TAG=${_TAG}
       - GOLDEN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}
       - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
     args:
@@ -72,6 +76,7 @@ steps:
   - name: gcr.io/wlhe-cr/crm-builder
     id: test
     env:
+      - TAG=${_TAG}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
       - KUBECONFIG=/workspace/kubeconfig
@@ -88,6 +93,7 @@ steps:
   - name: gcr.io/wlhe-cr/crm-builder
     id: hgatedeploy
     env:
+      - TAG=${_TAG}
       - HGATE_IMAGE=gcr.io/${PROJECT_ID}/krun/gate:${_TAG}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
@@ -106,6 +112,7 @@ steps:
   - name: gcr.io/wlhe-cr/crm-builder
     entrypoint: /bin/sh
     env:
+      - TAG=${_TAG}
       - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}
       - CLUSTER_NAME=asm-cr
       - CLUSTER_LOCATION=us-central1-c
