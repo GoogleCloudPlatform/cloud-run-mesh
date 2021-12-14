@@ -121,6 +121,26 @@ The connector MUST be on the same VPC network with the GKE cluster and configure
 
 If your GKE cluster has enabled control plane authorized networks you must add the serverless connector CIDR range as an authorized network.
 
+
+### Multi-project 
+
+If you want to run the CloudRun service in a separate project, to better isolate the permissions:
+
+- the cluster and the mesh connector will all run in the CONFIG_PROJECT_ID. 
+- it is recommended (but not required) to have 1 config cluster per region.
+- one or more shared VPCs should be used, in the CONFIG_PROJECT_ID 
+- the servlerless connector will also run in the CONFIG_PROJECT_ID, associated with each shared VPC
+
+The setup steps will allow the project used by CloudRun access to the VPC and serverless connector, as well as 
+viewer (list cluster and connect) to the config clusters in CONFIG_PROJECT_ID, just like in single project config.
+
+It is strongly recommended for the CloudRun project to be associated with a single K8S namespace. 
+We plan to use part of the project ID as the default namespace, if the WORKLOAD_NAMESPACE is not 
+explicitly configured. This simplifies the setup and reduces the risks, both namespace and projects
+are intended to isolate service accounts and permissions. 
+
+The workloads will act as K8S service account in the mapped K8s namespace.
+
 ## Namespace Setup
 
 After installing you can only configure new services for namespaces using namespace-level permissions in K8s.
@@ -160,6 +180,16 @@ admin permissions, but it does require IAM permissions on the project running th
                 --project ${CONFIG_PROJECT_ID}
     ```
 
+1. (multiproject only): Grant '--role="roles/serviceusage.serviceUsageConsumer" to the service account on the CONFIG_PROJECT. This allows it to 
+   view the list of GKE clusters and connect, without enabling GKE API in the workload cluster. It also allows sending metrics to the config project.
+
+    ```shell
+    gcloud projects add-iam-policy-binding ${CONFIG_PROJECT_ID} \
+                --member="serviceAccount:${CLOUDRUN_SERVICE_ACCOUNT}" \
+                --role="roles/serviceusage.serviceUsageConsumer" \
+                --project ${CONFIG_PROJECT_ID}
+    ```
+
 1. Grant additional RBAC permissions to the google service account, allowing it to access in-namespace config map and use
    TokenReview for the default KSA. (this step is also temporary, WIP to make it optional). This is used to get the
    MeshCA certificate and communicate with the managed control plane - Istio injector is mounting the equivalent tokens.
@@ -172,7 +202,7 @@ admin permissions, but it does require IAM permissions on the project running th
     kubectl create ns ${WORKLOAD_NAMESPACE} | true
     ```
 
-1. Associate the Google Service Account with the K8s Namespace:
+1. Associate the Google Service Account with the K8s Namespace, allowing it to act as the default Kubernetes Service Account in the namespace:
 
     ```shell
     curl https://raw.githubusercontent.com/GoogleCloudPlatform/cloud-run-mesh/main/manifests/google-service-account-template.yaml | envsubst | kubectl apply -f -
@@ -223,17 +253,13 @@ gcloud alpha run deploy ${CLOUDRUN_SERVICE} \
           --use-http2 \
           --port 15009 \
           --image ${IMAGE} \
-          --vpc-connector projects/${PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
-         --set-env-vars="CLUSTER_NAME=${CLUSTER_NAME}" \
-         --set-env-vars="CLUSTER_LOCATION=${CLUSTER_LOCATION}" \
-         --set-env-vars="PROJECT_ID=${CONFIG_PROJECT_ID}"
+          --vpc-connector projects/${CONFIG_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
+         --set-env-vars="MESH=//container.googleapis.com/projects/${CONFIG_PROJECT_ID}/locations/${CLUSTER_LOCATION}/clusters/${CLUSTER_NAME}" 
 ```
 
 For versions of `gcloud` older than 353.0, replace `--execution-environment=gen2` with `--sandbox=minivm`.
 
-Note that CLUSTER_NAME and CLUSTER_LOCATION are optional because krun picks a config cluster in the same region that is setup
-with MCP and fallbacks to another config cluster if the local cluster is unavailable. Cluster names starting with 'istio'
-will be used first in a region. (Will likely change to use a dedicated label on the project - WIP)
+You can also use MESH=gke://${CONFIG_PROJECT_ID}, allowing the workload to automatically select a cluster, starting with same location as the workload. 
 
 - `gcloud run deploy SERVICE --platform=managed --project --region` is common required parameters
 - `--execution-environment=gen2` is currently required to have iptables enabled. Without it the 'whitebox' mode will be

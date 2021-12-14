@@ -21,11 +21,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 )
 
 var initDebug func(run *mesh.KRun)
@@ -50,12 +52,6 @@ func main() {
 		log.Fatal("Failed to connect to mesh ", time.Since(kr.StartTime), kr, os.Environ(), err)
 	}
 
-	log.Println("K8S Client initialized", "cluster", kr.ClusterAddress,
-		"project_number", kr.ProjectNumber, "instanceID", kr.InstanceID,
-		"ksa", kr.KSA, "ns", kr.Namespace,
-		"name", kr.Name,
-		"labels", kr.Labels, "XDS", kr.XDSAddr, "initTime", time.Since(kr.StartTime))
-
 	meshMode := true
 
 	if _, err := os.Stat("/usr/local/bin/pilot-agent"); os.IsNotExist(err) {
@@ -66,7 +62,13 @@ func main() {
 	}
 
 	if meshMode {
+		log.Println("K8S Client initialized", "cluster", kr.ClusterAddress,
+			"project_number", kr.ProjectNumber, "instanceID", kr.InstanceID,
+			"ksa", kr.KSA, "ns", kr.Namespace,
+			"name", kr.Name,
+			"labels", kr.Labels, "XDS", kr.XDSAddr, "initTime", time.Since(kr.StartTime))
 		// Use k8s client to autoconfigure, reading from cluster.
+		kr.EnvoyStartTime = time.Now()
 		err := kr.StartIstioAgent()
 		if err != nil {
 			log.Fatal("Failed to start the mesh agent ", err)
@@ -83,6 +85,13 @@ func main() {
 			}
 			log.Fatal("Mesh agent not ready ", err)
 		}
+		kr.EnvoyReadyTime = time.Now()
+	} else {
+		log.Println("Proxyless init", "cluster", kr.ClusterAddress,
+			"project_number", kr.ProjectNumber, "instanceID", kr.InstanceID,
+			"ksa", kr.KSA, "ns", kr.Namespace,
+			"name", kr.Name,
+			"labels", kr.Labels, "XDS", kr.XDSAddr, "initTime", time.Since(kr.StartTime))
 	}
 
 	// TODO: wait for app  ready before binding to port - using same CloudRun 'bind to port 8080' or proper health check
@@ -95,12 +104,14 @@ func main() {
 
 	kr.StartApp()
 
-	if os.Getenv("APP_PORT") != "-" && len(os.Args) > 1 {
-		err = kr.WaitTCPReady("127.0.0.1:8080", 10*time.Second)
-		if err != nil {
-			log.Fatal("Timeout waiting for app", err)
-		}
+	err = kr.WaitAppStartup()
+	if err != nil {
+		log.Fatal("Timeout waiting for app", err)
 	}
+	log.Println("App ready",
+		"app_start", kr.AppReadyTime.Sub(kr.EnvoyReadyTime),
+		"envoy_time", kr.EnvoyReadyTime.Sub(kr.EnvoyStartTime),
+		"init_time", kr.EnvoyStartTime.Sub(kr.StartTime))
 
 	// Start the tunnel: accepts H2 streams, forward to 15003 (envoy) which handle mTLS
 	// and applies the metrics/enforcements and forwards to the app on 8080
@@ -133,14 +144,26 @@ func main() {
 	// This code path will change as Envoy support for adding JWT is added and Istio 'hbone'
 	// is fully implemented.
 	hb := hbone.New()
+	initPorts(kr, hb)
 
-	hb.TcpAddr = "127.0.0.1:15003" // must match sni-service-template port in Sidecar
+	hbone.Debug = kr.Config("MESH_DEBUG", "") != ""
+	mesh.Debug = kr.Config("MESH_DEBUG", "") != ""
+	sts.Debug = kr.Config("MESH_DEBUG", "") != ""
+
 	_, err = hbone.ListenAndServeTCP(":15009", hb.HandleAcceptedH2C)
 	if err != nil {
 		log.Fatal("Failed to start h2c on 15009", err)
 	}
 
 	select {}
+}
+
+func initPorts(kr *mesh.KRun, hb *hbone.HBone) {
+	for k, v := range kr.MeshEnv {
+		if strings.HasPrefix(k, "PORT_") && len(k) > 5 {
+			hb.Ports[k[5:]] = v
+		}
+	}
 }
 
 func startTd(kr *mesh.KRun) {

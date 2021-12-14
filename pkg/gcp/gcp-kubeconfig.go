@@ -73,7 +73,7 @@ var (
 
 // configFromEnvAndMD will attempt to configure ProjectId, ClusterName, ClusterLocation, ProjectNumber, used on GCP
 // Metadata server will be tried if env variables don't exist.
-func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
+func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) error {
 	if kr.ProjectId == "" {
 		kr.ProjectId = os.Getenv("PROJECT_ID")
 	}
@@ -127,11 +127,13 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 			kr.ClusterName, err = metadata.Get("instance/attributes/cluster-name")
 			if err != nil {
 				log.Println("Can't find cluster name")
+				// Not a critical problem - it's using in-cluster credentials.
 			}
 		}
 		if kr.InCluster && kr.ClusterLocation == "" {
 			kr.ClusterLocation, err = metadata.Get("instance/attributes/cluster-location")
 			if err != nil {
+				// Not a critical problem.
 				log.Println("Can't find cluster location")
 			}
 		}
@@ -139,6 +141,16 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 		if kr.InstanceID == "" {
 			kr.InstanceID, _ = metadata.InstanceID()
 		}
+	}
+
+	if kr.Namespace == "" {
+		// Explicitly set ?
+		labels, err := ProjectLabels(ctx, kr.ProjectId)
+		if err != nil {
+			log.Println("Failed to find labels")
+			return err
+		}
+		kr.Namespace = labels["mesh-namespace"]
 	}
 
 	if kr.Namespace == "" {
@@ -161,6 +173,7 @@ func configFromEnvAndMD(ctx context.Context, kr *mesh.KRun) {
 		"iid", kr.InstanceID,
 		"location", kr.ClusterLocation,
 		"sinceStart", time.Since(t0))
+	return nil
 }
 
 func RegionFromMetadata() (string, error) {
@@ -218,10 +231,9 @@ func PostConfigLoad(ctx context.Context, kr *mesh.KRun) error {
 
 	// TODO: only if mesh_env contains a WorkloadCertificateConfig with endpoint starting with //privateca.googleapis.com
 	// Errors results to fallback to pilot-agent and istio.
-	cas := kr.Config("CAS", "")
+	cas := kr.Config("CA_POOL", "")
 	if cas != "" {
-		kr.CSRSigner, err = NewCASCertProvider("projects/"+kr.ProjectId+
-				"/locations/"+kr.Region()+"/caPools/mesh", ol)
+		kr.CSRSigner, err = NewCASCertProvider(cas, ol)
 	}
 	return err
 }
@@ -445,6 +457,21 @@ func GKECluster(ctx context.Context, kr *mesh.KRun, p, l, clusterName string) (*
 	}
 	return nil, err
 }
+
+func ProjectLabels(ctx context.Context, p string) (map[string]string, error) {
+	cr, err := crm.NewService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pdata, err := cr.Projects.Get(p).Context(ctx).Do()
+	if err != nil {
+		log.Println("Error getting project number", p, err)
+		return nil, err
+	}
+
+	return pdata.Labels, nil
+}
+
 
 func ProjectNumber(p string) string {
 	ctx := context.Background()

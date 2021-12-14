@@ -61,8 +61,14 @@ metadata:
     mesh-cloudrun: ${WORKLOAD_NAME}
 spec:
   ports:
-    - port: 8080
+    - port: 80
       name: http
+      targetPort: 15443
+    - port: 8080
+      name: http-8080
+      targetPort: 15443
+    - port: 8079
+      name: grpc
       targetPort: 15443
   selector:
     app: ${WORKLOAD_NAME}

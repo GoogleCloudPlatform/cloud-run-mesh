@@ -72,7 +72,11 @@ type KRun struct {
 	// Different from meshID - which is the user-visible form.
 	MeshTenant string
 
+	// External address of the mesh connector
+	// Not used for internal workloads.
 	MeshConnectorAddr         string
+
+	// Internal (ILB) address.
 	MeshConnectorInternalAddr string
 
 	// Canonical name for the application.
@@ -132,6 +136,10 @@ type KRun struct {
 	TrustDomain string
 
 	StartTime  time.Time
+	EnvoyStartTime time.Time
+	EnvoyReadyTime time.Time
+	AppReadyTime time.Time
+
 	Labels     map[string]string
 	VendorInit func(context.Context, *KRun) error
 
@@ -165,7 +173,8 @@ type KRun struct {
 
 	InstanceID string
 
-	// Content of the 'mesh environment' - loaded from the config file.
+	// Content of the 'mesh environment' - loaded from the config file in istio-system (or the address of the mesh).
+	// Additional entries may be merged from env or app specific config file.
 	MeshEnv map[string]string
 
 	CSRSigner CSRSigner
@@ -367,6 +376,13 @@ func (kr *KRun) initFromEnv() {
 	// Advanced options
 	// example dns:debug
 	kr.AgentDebug = kr.Config("XDS_AGENT_DEBUG", "")
+
+	for _, e := range os.Environ() {
+		k := strings.SplitN(e, "=", 2)
+		if len(k) == 2 && strings.HasPrefix(k[0], "PORT_") && len(k[0]) > 5 {
+			kr.MeshEnv[k[0]] = k[1]
+		}
+	}
 }
 
 // Set defaults, after all config was loaded, for missing configs
@@ -392,6 +408,7 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 
 		err := kr.loadMeshEnv(ctx)
 		if err != nil {
+			log.Println("Error loadMeshEnv", "err", err)
 			return err
 		}
 		// Adjust 'derived' values if needed.
@@ -413,10 +430,12 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 
 	err := kr.InitCertificates(ctx, WorkloadCertDir)
 	if err != nil {
+		log.Println("InitCertificates", "err", err)
 		return err
 	}
 	err = kr.InitRoots(ctx, WorkloadCertDir)
 	if err != nil {
+		log.Println("InitRoots", "err", err)
 		return err
 	}
 
@@ -485,7 +504,7 @@ func (kr *KRun) FindXDSAddr() string {
 	addr := ""
 	if kr.MeshTenant == "-" || kr.MeshTenant == "" {
 		// Explicitly in-cluster
-		addr = kr.MeshConnectorAddr + ":15012"
+		addr = kr.MeshConnectorInternalAddr + ":15012"
 	} else {
 		// we have a mesh tenant - use MCP
 		// For staging: explicitly set XDS_ADDR in mesh-env
@@ -515,23 +534,23 @@ func (kr *KRun) loadMeshEnv(ctx context.Context) error {
 func (kr *KRun) initFromMeshEnv(d map[string]string) error {
 	kr.MeshEnv = d
 	// See connector for supported values
-	updateFromMap(d, "PROJECT_NUMBER", &kr.ProjectNumber)
-	updateFromMap(d, "MESH_TENANT", &kr.MeshTenant)
-	updateFromMap(d, "XDS_ADDR", &kr.XDSAddr)
-	updateFromMap(d, "CLUSTER_NAME", &kr.ClusterName)
-	updateFromMap(d, "CLUSTER_LOCATION", &kr.ClusterLocation)
-	updateFromMap(d, "PROJECT_ID", &kr.ProjectId)
-	updateFromMap(d, "MCON_ADDR", &kr.MeshConnectorAddr)
-	updateFromMap(d, "IMCON_ADDR", &kr.MeshConnectorInternalAddr)
+	kr.updateFromMap(d, "PROJECT_NUMBER", &kr.ProjectNumber)
+	kr.updateFromMap(d, "MESH_TENANT", &kr.MeshTenant)
+	kr.updateFromMap(d, "XDS_ADDR", &kr.XDSAddr)
+	kr.updateFromMap(d, "CLUSTER_NAME", &kr.ClusterName)
+	kr.updateFromMap(d, "CLUSTER_LOCATION", &kr.ClusterLocation)
+	kr.updateFromMap(d, "PROJECT_ID", &kr.ProjectId)
+	kr.updateFromMap(d, "MCON_ADDR", &kr.MeshConnectorAddr)
+	kr.updateFromMap(d, "IMCON_ADDR", &kr.MeshConnectorInternalAddr)
 
-	updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
+	kr.updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
 	if kr.CitadelRoot != "" {
 		kr.CARoots = append(kr.CARoots, kr.CitadelRoot)
 	}
 	return nil
 }
 
-func updateFromMap(d map[string]string, key string, dest *string) {
+func (kr *KRun) updateFromMap(d map[string]string, key string, dest *string) {
 	if d[key] != "" && *dest == "" {
 		*dest = d[key]
 	}

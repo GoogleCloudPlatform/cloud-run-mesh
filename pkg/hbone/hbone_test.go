@@ -41,7 +41,7 @@ func TestHBone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bob.TcpAddr = ehL.Addr().String()
+	bob.Ports["tcp"] = ehL.Addr().String()
 
 	// Alice opens hbone to TCP connection to bob's echo server.
 	t.Run("plain-alice-bob", func(t *testing.T) {

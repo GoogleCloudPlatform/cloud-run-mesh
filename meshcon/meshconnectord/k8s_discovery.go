@@ -20,7 +20,6 @@ import (
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
-	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 )
@@ -54,7 +53,7 @@ func (e EventHandler) OnAdd(obj interface{}) {
 		e.sg.Services[sv.Name + "." + sv.Namespace] = sv
 		return
 	}
-	if es, ok := obj.(*discoveryv1beta1.EndpointSlice); ok {
+	if es, ok := obj.(*discoveryv1.EndpointSlice); ok {
 		// Example:
 		//&EndpointSlice{
 		//ObjectMeta:{fortio-canary-lvm4m fortio-canary- fortio  5ce098ab-968d-41d7-925c-dd0dd6230c70 259977129 9 2021-08-24 18:42:23 -0700 PDT <nil> <nil>
@@ -96,7 +95,7 @@ func (e EventHandler) OnUpdate(oldObj, obj interface{}) {
 		e.sg.Services[sv.Name + "." + sv.Namespace] = sv
 		return
 	}
-	if es, ok := obj.(*discoveryv1beta1.EndpointSlice); ok {
+	if es, ok := obj.(*discoveryv1.EndpointSlice); ok {
 		e.sg.EP[es.Name + "." + es.Namespace] = es
 		return
 	}
@@ -107,7 +106,7 @@ func (e EventHandler) OnDelete(obj interface{}) {
 		delete(e.sg.Services, sv.Name + "." + sv.Namespace)
 		return
 	}
-	if es, ok := obj.(*discoveryv1beta1.EndpointSlice); ok {
+	if es, ok := obj.(*discoveryv1.EndpointSlice); ok {
 		delete(e.sg.EP, es.Name + "." + es.Namespace)
 		return
 	}
@@ -119,8 +118,7 @@ func (sg *MeshConnector) NewWatcher() {
 	inF := informers.NewSharedInformerFactory(kr.Client, 0)
 	eh := &EventHandler{sg: sg}
 
-	inF.Discovery().V1beta1().EndpointSlices().Informer().AddEventHandler(eh)
-
+	// WIP - need to figure out which version, someone complains.
 	//inF.Discovery().V1().EndpointSlices().Informer().AddEventHandler(eh)
 
 	svci := inF.Core().V1().Services().Informer()

@@ -366,9 +366,10 @@ func (kr *KRun) StartIstioAgent() error {
 		}
 	}
 
-	// Generate grpc bootstrap - no harm, low cost
+	// Generate grpc bootstrap - no harm, low cost.
+	// TODO: New version of Istio does this automatically, will be removed
 	if os.Getenv("GRPC_XDS_BOOTSTRAP") == "" {
-		env = append(env, "GRPC_XDS_BOOTSTRAP=./var/run/grpc_bootstrap.json")
+		env = append(env, "GRPC_XDS_BOOTSTRAP=./etc/istio/proxy/grpc_bootstrap.json")
 	}
 	cmd := kr.agentCommand()
 	var stdout io.ReadCloser
@@ -404,9 +405,12 @@ func (kr *KRun) StartIstioAgent() error {
 	cmd.Stderr = os.Stderr
 	os.MkdirAll(prefix+"/var/lib/istio/envoy/", 0700)
 
-	saveLaunchInfo(cmd)
+	//saveLaunchInfo(cmd)
 
 	go func() {
+		if Debug {
+			log.Println("Starting cmd", cmd.Args)
+		}
 		err := cmd.Start()
 		if err != nil {
 			log.Println("Failed to start ", cmd, err)
@@ -511,20 +515,46 @@ environment="cloud-run-mesh"
 }
 
 func (kr *KRun) runIptablesSetup(env []string) error {
-	// TODO: make the args the default !
-	// pilot-agent istio-iptables -p 15001 -u 1337 -m REDIRECT -i '*' -b "" -x "" -- crash
+	/*
+	Injected default:
+	  - -p
+	    - "15001"
+	    - -z
+	    - "15006"
+	    - -u
+	    - "1337"
+	    - -m
+	    - REDIRECT
+	    - -i
+	    - '*'
+	    - -x
+	    - ""
+	    - -b
+	    - '*'
+	    - -d
+	    - 15090,15021,15020
 
-	//pilot-agent istio-iptables -p 15001 -u 1337 -m REDIRECT -i '10.8.4.0/24' -b "" -x ""
+	*/
+	outRange := kr.Config("OUTBOUND_IP_RANGES_INCLUDE", "10.0.0.0/8")
+	// Exclude ports from Envoy capture - hbone-h2, hbone-h2c
+	excludePorts := kr.Config("OUTBOUND_PORTS_EXCLUDE", "15008,15009")
+	if excludePorts != "15008,15009" {
+		excludePorts = excludePorts + ",15008,15009"
+	}
+
 	cmd := exec.Command("/usr/local/bin/pilot-agent",
 		"istio-iptables",
-		"-p", "15001", // outbound capture port
-		//"-z", "15006", - no inbound interception
-		"-u", "1337",
-		"-m", "REDIRECT",
-		"-i", "10.0.0.0/8", // all outbound captured
-		"-b", "", // disable all inbound redirection
-		// "-d", "15090,15021,15020", // exclude specific ports
-		"-x", "")
+		// "-p", "15001", // outbound capture port, default value
+		//"-z", "15006", - no inbound interception, default value
+		"-u", "1337", // REQUIRED - code default is 128
+		//"-m", "REDIRECT", // default value
+		//"-i", "*", // OUTBOUND_IP_RANGES_INCLUDE
+		"-i", outRange, // Alternative - only mesh traffic
+		// "-b", "", // disable all inbound redirection, default
+		// "-d", "15090,15021,15020", // exclude specific ports from inbound capture, if -b '*'
+		"-o", excludePorts,
+		//"-x", "", // exclude CIDR, default
+	)
 	cmd.Env = env
 	cmd.Dir = "/"
 	so := &bytes.Buffer{}

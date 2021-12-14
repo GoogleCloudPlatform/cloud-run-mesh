@@ -237,6 +237,9 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 
 	<-ch
 
-	log.Println("hbc-done", "status", res.Status, "conTime", t1.Sub(t0), "dur", time.Since(t1), "err", s2.Err, s1.Err, s2.InError, s1.InError)
+	log.Println("HBoneC-done", "url", r.URL, "status", res.Status, "conTime", t1.Sub(t0), "dur", time.Since(t1))
+	if s2.Err != nil || s1.Err != nil || s2.InError || s1.InError {
+		log.Println("HboneC close errors", s2.Err, s1.Err, s2.InError, s1.InError)
+	}
 	return s2.Err
 }
