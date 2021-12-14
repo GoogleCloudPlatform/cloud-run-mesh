@@ -346,7 +346,7 @@ deploy/istiod-autopilot:
 ############ Canary (stability/e2e) ##############
 
 # Canary will deploy a 'canary' version of a cloudrun instance using the current golden image, and verify it works
-# Used in GCB, where the images are built with Kaniko
+# Used in GCB - the cluster is expected to have both OSS and MCP installed, tests will deploy against each.
 e2e: canary/deploy canary/test
 
 # Build, push and run e2e
