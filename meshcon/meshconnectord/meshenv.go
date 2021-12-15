@@ -128,7 +128,7 @@ func (sg *MeshConnector) SaveToMap(kr *mesh.KRun, d map[string]string) bool {
 
 	// TODO: set CAS based on the WorkloadCertificate config - for now use the default name if Zatar is enabled
 	// This should set the full config - including EC support, etc.
-	needUpdate = setIfEmpty(d, "CAS", sg.CAPool, needUpdate)
+	needUpdate = setIfEmpty(d, "CA_POOL", sg.CAPool, needUpdate)
 	needUpdate = setIfEmpty(d, "CAROOT_CAS", sg.CASRoots, needUpdate)
 
 

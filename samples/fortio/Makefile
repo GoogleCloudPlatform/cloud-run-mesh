@@ -86,9 +86,15 @@ deploy:
          \
 		--image ${FORTIO_IMAGE} \
 		\
+		   --set-env-vars="MESH=//container.googleapis.com/projects/${CONFIG_PROJECT_ID}/locations/${CLUSTER_LOCATION}/clusters/${CLUSTER_NAME}" \
   		  ${FORTIO_DEPLOY_EXTRA} \
-  		  --set-env-vars=MESH=gke://${CONFIG_PROJECT_ID} \
- 		 --set-env-vars="DEPLOY=$(shell date +%y%m%d-%H%M)"
+		 --set-env-vars="DEPLOY=$(shell date +%y%m%d-%H%M)"
+
+
+# No longer used:
+#		   --set-env-vars="CLUSTER_NAME=${CLUSTER_NAME}" \
+#		   --set-env-vars="CLUSTER_LOCATION=${CLUSTER_LOCATION}" \
+#		   --set-env-vars="PROJECT_ID=${CONFIG_PROJECT_ID}" \
 
 # This is the barebone deploy, with auth enabled
 deploy-auth:

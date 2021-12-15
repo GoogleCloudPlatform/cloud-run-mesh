@@ -128,11 +128,23 @@ func NewSSHTransport(signer gossh.Signer, name, domain, root string) (*Server, e
 		}
 	}
 
+	shell := ""
+	// Distroless + debug
+	if _, err := os.Stat("/busybox/sh"); err == nil {
+		shell = "/busybox/sh"
+	}
+	if _, err := os.Stat("/bin/bash"); err == nil {
+		shell = "/bin/bash"
+	}
+	if _, err := os.Stat("/bin/sh"); err == nil {
+		shell = "/bin/sh"
+	}
+
 	s := &Server{
 		signer:       signer,
 		serverConfig: &gossh.ServerConfig{},
 		Port:         15022,
-		Shell:        "/bin/bash",
+		Shell:        shell,
 		// Server cert checker
 		CertChecker: &gossh.CertChecker{
 			IsUserAuthority: func(auth gossh.PublicKey) bool {

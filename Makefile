@@ -8,6 +8,7 @@ ROOT_DIR?=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 OUT?=${ROOT_DIR}/../out/krun
 
 -include .local.mk
+-include tools/common.mk
 
 # The CI/CD infra uses:
 # wlhe-cr project, clusters istio and asm-cr - for single project testing
@@ -43,12 +44,9 @@ export TAG
 # Default repo for pulling images is in the project.
 REPO?=gcr.io/${PROJECT_ID}
 
-DOCKER_REPO?=gcr.io/${PROJECT_ID}/krun
-export DOCKER_REPO
-
-KRUN_IMAGE?=${DOCKER_REPO}:${TAG}
-
-HGATE_IMAGE?=${DOCKER_REPO}/gate:${TAG}
+KRUN_IMAGE?=${REPO}/krun:${TAG}
+export REPO
+HGATE_IMAGE?=${REPO}/gate:${TAG}
 
 WORKLOAD_NAME?=fortio-cr
 WORKLOAD_NAMESPACE?=fortio
@@ -68,14 +66,22 @@ export HGATE_IMAGE
 
 # Build krun, fortio, push fortio, deploy to main test cloudrun config
 # Expects Istio cluster and in-cluster fortio to be running
-all: build build/krun build/fortio push/fortio deploy/fortio
+all: build docker/krun all-testapp all-fortio
+
+all-golden: build docker/krun
+	docker push  ${KRUN_IMAGE}
+	docker push  ${KRUN_IMAGE}-distroless
 
 # Build, push, deploy hgate.
 all-hgate: build docker/hgate push/hgate deploy/hgate
 
+all-testapp: build docker/krun docker/testapp push/testapp deploy/testapp
+
+all-fortio: build docker/krun docker/fortio push/fortio deploy/fortio
+
 deploy/hgate:
 	mkdir -p ${OUT}/manifests
-	echo ${HGATE_IMAGE}
+	echo HGATE IMAGE: ${TAG} ${REPO} ${HGATE_IMAGE}
 	cat manifests/kustomization-tmpl.yaml | envsubst > ${OUT}/manifests/kustomization.yaml
 	cp -a manifests/hgate ${OUT}/manifests
 	kubectl apply -k ${OUT}/manifests
@@ -110,7 +116,7 @@ build:
 
 # Build and tag krun image locally, will be used in the next phase and for local testing, no push
 
-build/fortio: build/krun
+docker/fortio: build/krun
 	(cd samples/fortio; GOLDEN_IMAGE=${KRUN_IMAGE} make image)
 
 build/krun: docker/krun
@@ -123,6 +129,12 @@ docker/hgate:
 
 docker/krun:
 	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden -t ${KRUN_IMAGE}
+	time docker build ${OUT}/docker-krun -f tools/docker/Dockerfile.golden-distroless -t ${KRUN_IMAGE}-distroless
+
+# TODO: use crane
+docker/testapp:
+	#cd samples/existingbase && time docker build ${OUT}/docker-krun -f Dockerfile --build-arg=BASE=${KRUN_IMAGE}-distroless -t ${REPO}/httpbin:${TAG}-distroless
+	cd samples/distroless && time docker build ${OUT}/docker-krun -f Dockerfile --build-arg=BASE=${KRUN_IMAGE}-distroless -t ${REPO}/testapp:${TAG}-distroless
 
 test/e2e: CR_URL=$(shell gcloud run services describe ${WORKLOAD_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
 test/e2e:
@@ -138,9 +150,13 @@ push/hgate:
 
 push/krun:
 	docker push ${KRUN_IMAGE}
+	docker push ${KRUN_IMAGE}-distroless
 
 push/fortio:
 	(cd samples/fortio; make push)
+
+push/testapp:
+	docker push ${REPO}/testapp:${TAG}-distroless
 
 push/builder:
 	docker push gcr.io/${PROJECT_ID}/crm-builder:latest
@@ -176,45 +192,57 @@ deploy/fortio-debug:
              \
              --image ${FORTIO_IMAGE} \
 
+deploy/testapp:
+	SERVICE=testapp IMAGE=${REPO}/testapp:${TAG}-distroless $(MAKE) deploy
 
+# Currently broken, doesn't work.
+deploy/testapp-egress-all:
+	# Alternative: private-ranges-only, does not update.
+	SERVICE=testapp-egress IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--vpc-egress=all-traffic $(MAKE) deploy
+
+deploy/testapp-cas:
+	SERVICE=testapp-cas IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--set-env-vars="CAS=projects/mcp-prod/locations/us-central1/caPools/mesh" $(MAKE) deploy
+
+
+# Setup-sni deploys the in-cluster configs associated with the service
+# Will be part of authregistration.
 deploy/fortio-asm:
     # OSS/ASM with Istiod exposed in Gateway, with ACME certs
 	(cd samples/fortio; REGION=${REGION} WORKLOAD_NAME=fortio-crasm \
 		FORTIO_DEPLOY_EXTRA="--set-env-vars MESH_TENANT=-" \
 		make deploy)
 
-logs:
-	(cd samples/fortio; make logs)
-
 # Send traffic from pod to cloudrun
 pod2cr: POD=$(shell kubectl --namespace=fortio get -l app=fortio pod -o=jsonpath='{.items[0].metadata.name}')
 pod2cr:
 	kubectl exec -n fortio ${POD} -- fortio load ${FORTIO_LOAD_ARG} fortio-cr:8080/echo
 
-################# Testing / local dev #################
-# For testing/dev in local docker
+test/pod2app: POD=$(shell kubectl --namespace=fortio get -l app=fortio pod -o=jsonpath='{.items[0].metadata.name}')
+test/pod2app: TESTAPP_URL=$(shell gcloud run services describe testapp --region ${REGION} --project ${PROJECT_ID} --format="value(status.address.url)")
+test/pod2app:
+	# Pending fix for readiness - first request may fail
+	time kubectl exec -n fortio ${POD} -- fortio curl http://testapp:8080/ || true
+	time kubectl exec -n fortio ${POD} -- fortio curl http://testapp:8080/
+	kubectl exec -n fortio ${POD} -- fortio curl ${TESTAPP_URL}
 
-docker/_run: ADC?=${HOME}/.config/gcloud/legacy_credentials/$(shell gcloud config get-value core/account)/adc.json
-docker/_run:
-	docker run -it --rm \
-		-e PROJECT_ID=${PROJECT_ID} \
-		-e GOOGLE_APPLICATION_CREDENTIALS=/var/run/secrets/google/google.json \
-		-v ${ADC}:/var/run/secrets/google/google.json:ro \
-		${_RUN_EXTRA} \
-		${_RUN_IMAGE} \
-	   /bin/bash
-
+#
 # 		-e CLUSTER_NAME=${CLUSTER_NAME} \
   #		-e CLUSTER_LOCATION=${CLUSTER_LOCATION} \
 
 
 # Run krun in a docker image, get a shell. Will use MCP.
 docker/run-mcp:
-	_RUN_IMAGE=${KRUN_IMAGE} $(MAKE) docker/_run
+	IMAGE=${KRUN_IMAGE} $(MAKE) docker/run
 
 # Run in local docker, using ADC for auth and an explicit XDS address
 docker/run-xds-adc:
-	_RUN_EXTRA="-e XDS_ADDR=istiod.wlhe.i.webinf.info:443"   _RUN_IMAGE=${KRUN_IMAGE} $(MAKE) docker/_run
+	_RUN_EXTRA="-e XDS_ADDR=istiod.wlhe.i.webinf.info:443"   IMAGE=${KRUN_IMAGE} $(MAKE) docker/run
+
+docker/run-testapp:
+	_RUN_EXTRA="" _RUN_CMD="" IMAGE=${REPO}/testapp:${TAG}-distroless $(MAKE) docker/run
+
+docker/run-httpbin:
+	_RUN_EXTRA="" _RUN_CMD="" IMAGE=${REPO}/httpbin:${TAG}-distroless $(MAKE) docker/run
 
 # Run hgate in a local docker container, for testing. Will connect to the cluster.
 #
@@ -222,21 +250,27 @@ docker/run-xds-adc:
 # DISABLE_ENVOY also disables envoy - only using the cert part in istio-agent
 docker/run-hgate:
 	_RUN_EXTRA="-e DISABLE_ENVOY=true -e ISTIO_META_INTERCEPTION_MODE=NONE -p 15441:15441" \
- 	_RUN_IMAGE=${HGATE_IMAGE}  \
- 		$(MAKE) docker/_run
+ 	IMAGE=${HGATE_IMAGE}  _RUN_CMD=/bin/bash \
+ 		$(MAKE) docker/run
 
 # Run without ADC, only kubeconfig
 docker/run-kubeconfig:
 	docker run  -e KUBECONFIG=/var/run/kubeconfig -v ${HOME}/.kube/config:/var/run/kubeconfig:ro -it  \
 		${KRUN_IMAGE}  /bin/bash
 
-docker/build-run-fortio: build/krun build/fortio
-	_RUN_IMAGE=${FORTIO_IMAGE} $(MAKE) docker/_run
+docker/build-run-fortio: build/krun docker/fortio
+	IMAGE=${FORTIO_IMAGE} $(MAKE) docker/run
 
 docker/run-fortio:
-	_RUN_IMAGE=${FORTIO_IMAGE} $(MAKE) docker/_run
+	IMAGE=${FORTIO_IMAGE} $(MAKE) docker/run
 
 ################## Setup/preparation
+
+setup/in-cluster:
+	kubect create ns fortio || true
+	kubectl -n fortio apply -f samples/fortio/in-cluster.yaml
+	kubectl -n fortio apply -f samples/distroless/in-cluster.yaml
+
 
 ## Cluster setup for samples and testing
 deploy/k8s-fortio:
@@ -312,7 +346,7 @@ deploy/istiod-autopilot:
 ############ Canary (stability/e2e) ##############
 
 # Canary will deploy a 'canary' version of a cloudrun instance using the current golden image, and verify it works
-# Used in GCB, where the images are built with Kaniko
+# Used in GCB - the cluster is expected to have both OSS and MCP installed, tests will deploy against each.
 e2e: canary/deploy canary/test
 
 # Build, push and run e2e

@@ -48,7 +48,7 @@ func (sg *MeshConnector) InitMeshEnvGCP(ctx context.Context) error {
 	rootFile := filepath.Join(mesh.WorkloadCertDir, mesh.WorkloadRootCAs)
 	rootCertPEM, err := ioutil.ReadFile(rootFile)
 	if err == nil {
-		sg.CAPool = "projects/"+kr.ProjectId+"/locations/"+kr.Region()+"/caPools/mesh"
+		sg.CAPool = sg.Mesh.Config("CAS_POOL", "")
 		sg.CASRoots = string(rootCertPEM)
 		log.Println("CASEnabled", "CAPool", sg.CAPool)
 	}

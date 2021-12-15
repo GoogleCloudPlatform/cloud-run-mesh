@@ -69,7 +69,7 @@ func (kr *KRun) StartApp() {
 		cmd.Env = append(cmd.Env, e)
 	}
 	if os.Getenv("GRPC_XDS_BOOTSTRAP") == "" {
-		cmd.Env = append(cmd.Env, "GRPC_XDS_BOOTSTRAP=/var/run/grpc_bootstrap.json")
+		cmd.Env = append(cmd.Env, "GRPC_XDS_BOOTSTRAP=/etc/istio/proxy/grpc_bootstrap.json")
 	}
 	if kr.WhiteboxMode {
 		cmd.Env = append(cmd.Env, "HTTP_PROXY=127.0.0.1:15007")
@@ -120,7 +120,27 @@ func (kr *KRun) WaitTCPReady(addr string, max time.Duration) error {
 		return nil
 	}
 	return nil
+}
 
+// WaitAppStartup waits for app to be ready to accept requests.
+// - default is KNative 'listen on the app port' ( 8080 default, PORT_http overrides )
+// - startupProbe.tcp and startupProbe.http can define alternate port and using http ready.
+func (kr *KRun) WaitAppStartup() error {
+	var err error
+	startupTimeout := 10 * time.Second // TODO: make customizable
+	// PORT_http is used as an alternative to PORT - which is taken over by the tunnel.
+	appPort := kr.Config("PORT_http", "8080")
+	// Wait for app to be ready
+	startupProbeHttp := kr.Config("startupProbe.http", "")
+	startupProbeTcp := kr.Config("startupProbe.tcp", "")
+	if startupProbeHttp != "" {
+		err = kr.WaitHTTPReady(startupProbeHttp, startupTimeout)
+	} else if startupProbeTcp != "" {
+		err = kr.WaitTCPReady(startupProbeTcp, startupTimeout)
+	} else if appPort != "-" && len(os.Args) > 1 {
+		err = kr.WaitTCPReady("127.0.0.1:" + appPort, startupTimeout)
+	}
+	return err
 }
 
 func (kr *KRun) WaitHTTPReady(url string, max time.Duration) error {
@@ -128,7 +148,6 @@ func (kr *KRun) WaitHTTPReady(url string, max time.Duration) error {
 	for {
 		res, _ := http.Get(url)
 		if res != nil && res.StatusCode == 200 {
-			log.Println("Ready")
 			return nil
 		}
 

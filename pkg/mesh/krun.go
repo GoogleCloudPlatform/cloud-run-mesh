@@ -26,7 +26,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -73,7 +72,11 @@ type KRun struct {
 	// Different from meshID - which is the user-visible form.
 	MeshTenant string
 
+	// External address of the mesh connector
+	// Not used for internal workloads.
 	MeshConnectorAddr         string
+
+	// Internal (ILB) address.
 	MeshConnectorInternalAddr string
 
 	// Canonical name for the application.
@@ -127,12 +130,16 @@ type KRun struct {
 	// TODO: replace with Workloadlocation. Config cluster location not used.
 	ClusterLocation string
 
-	Children 	[]*exec.Cmd
+	Children    []*exec.Cmd
 	agentCmd    *exec.Cmd
 	appCmd      *exec.Cmd
 	TrustDomain string
 
 	StartTime  time.Time
+	EnvoyStartTime time.Time
+	EnvoyReadyTime time.Time
+	AppReadyTime time.Time
+
 	Labels     map[string]string
 	VendorInit func(context.Context, *KRun) error
 
@@ -166,7 +173,8 @@ type KRun struct {
 
 	InstanceID string
 
-	// Content of the 'mesh environment' - loaded from the config file.
+	// Content of the 'mesh environment' - loaded from the config file in istio-system (or the address of the mesh).
+	// Additional entries may be merged from env or app specific config file.
 	MeshEnv map[string]string
 
 	CSRSigner CSRSigner
@@ -179,7 +187,7 @@ type KRun struct {
 	// Function to call after config has been loaded, before init certs.
 	PostConfigLoad func(ctx context.Context, kr *KRun) error
 
-	X509KeyPair    *tls.Certificate
+	X509KeyPair     *tls.Certificate
 	TrustedCertPool *x509.CertPool
 
 	// Holds Traffic Director sidecar environment.
@@ -195,13 +203,13 @@ var Debug = false
 // New creates an uninitialized mesh launcher.
 func New() *KRun {
 	kr := &KRun{
-		MeshEnv:     map[string]string{},
+		MeshEnv:         map[string]string{},
 		TrustedCertPool: x509.NewCertPool(),
-		StartTime:    time.Now(),
-		Aud2File:     map[string]string{},
-		Labels:       map[string]string{},
-		ProxyConfig:  &ProxyConfig{},
-		TdSidecarEnv: NewTdSidecarEnv(),
+		StartTime:       time.Now(),
+		Aud2File:        map[string]string{},
+		Labels:          map[string]string{},
+		ProxyConfig:     &ProxyConfig{},
+		TdSidecarEnv:    NewTdSidecarEnv(),
 	}
 	kr.initFromEnv()
 	return kr
@@ -236,29 +244,31 @@ func (kr *KRun) InitForTD() {
 }
 
 // Returns true if Mesh env variable refers to TD mesh
-// Traffic Director expects MESH env in the following format:
-// td://projects/{PROJECT_NUMBER}/networks/{NETWORK_NAME}
-// where PROJECT_NUMBER can be an empty string or a numeric. When empty, project Number is auto derived
-// where NETWORK_NAME can be empty or some string. When empty, network name defaults to 'default'
+// Traffic Director expects MESH env in the following formats:
+// * td:
+// * td:projects={PROJECT_NUMBER}
+// * td:networks={NETWORK_NAME}
+// * td:projects={PROJECT_NUMBER}&networks={NETWORK_NAME}
+
 func (kr *KRun) InitForTDFromMeshEnv() bool {
 	mesh := os.Getenv("MESH")
-	log.Println(mesh)
-	networkRegex, err := regexp.Compile(`(?:td://projects/)([0-9]*)(?:/networks/)([-a-z0-9]*)`)
-	if err != nil {
-		return false
-	}
-	splits := networkRegex.FindStringSubmatch(mesh)
-	// Submatch 0 is the match of the entire expression, submatch 1 the match of the first parenthesized subexpression, and so on.
-	if len(splits) != 3 {
+	u, urlErr := url.Parse(mesh)
+	if urlErr != nil {
 		return false
 	}
 
-	if len(splits[1]) != 0 {
-		kr.ProjectNumber = splits[1]
+	if u.Scheme != "td" {
+		return false
 	}
 
-	if len(splits[2]) != 0 {
-		kr.NetworkName = splits[2]
+	if values, err := url.ParseQuery(u.Opaque); err == nil {
+		if projectNumber := values.Get("projects"); len(projectNumber) > 0 {
+			kr.ProjectNumber = projectNumber
+		}
+
+		if networkName := values.Get("networks"); len(networkName) > 0 {
+			kr.NetworkName = networkName
+		}
 	}
 	return true
 }
@@ -366,6 +376,13 @@ func (kr *KRun) initFromEnv() {
 	// Advanced options
 	// example dns:debug
 	kr.AgentDebug = kr.Config("XDS_AGENT_DEBUG", "")
+
+	for _, e := range os.Environ() {
+		k := strings.SplitN(e, "=", 2)
+		if len(k) == 2 && strings.HasPrefix(k[0], "PORT_") && len(k[0]) > 5 {
+			kr.MeshEnv[k[0]] = k[1]
+		}
+	}
 }
 
 // Set defaults, after all config was loaded, for missing configs
@@ -391,6 +408,7 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 
 		err := kr.loadMeshEnv(ctx)
 		if err != nil {
+			log.Println("Error loadMeshEnv", "err", err)
 			return err
 		}
 		// Adjust 'derived' values if needed.
@@ -412,10 +430,12 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 
 	err := kr.InitCertificates(ctx, WorkloadCertDir)
 	if err != nil {
+		log.Println("InitCertificates", "err", err)
 		return err
 	}
 	err = kr.InitRoots(ctx, WorkloadCertDir)
 	if err != nil {
+		log.Println("InitRoots", "err", err)
 		return err
 	}
 
@@ -431,7 +451,7 @@ func (kr *KRun) LoadConfig(ctx context.Context) error {
 // 'library' means linking this or a similar package with the application.
 func (kr *KRun) RefreshAndSaveTokens() {
 	// TODO: trace on errors
-	ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second)
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 
 	for aud, f := range kr.Aud2File {
 		kr.saveTokenToFile(ctx, kr.Namespace, aud, f)
@@ -484,7 +504,7 @@ func (kr *KRun) FindXDSAddr() string {
 	addr := ""
 	if kr.MeshTenant == "-" || kr.MeshTenant == "" {
 		// Explicitly in-cluster
-		addr = kr.MeshConnectorAddr + ":15012"
+		addr = kr.MeshConnectorInternalAddr + ":15012"
 	} else {
 		// we have a mesh tenant - use MCP
 		// For staging: explicitly set XDS_ADDR in mesh-env
@@ -514,23 +534,23 @@ func (kr *KRun) loadMeshEnv(ctx context.Context) error {
 func (kr *KRun) initFromMeshEnv(d map[string]string) error {
 	kr.MeshEnv = d
 	// See connector for supported values
-	updateFromMap(d, "PROJECT_NUMBER", &kr.ProjectNumber)
-	updateFromMap(d, "MESH_TENANT", &kr.MeshTenant)
-	updateFromMap(d, "XDS_ADDR", &kr.XDSAddr)
-	updateFromMap(d, "CLUSTER_NAME", &kr.ClusterName)
-	updateFromMap(d, "CLUSTER_LOCATION", &kr.ClusterLocation)
-	updateFromMap(d, "PROJECT_ID", &kr.ProjectId)
-	updateFromMap(d, "MCON_ADDR", &kr.MeshConnectorAddr)
-	updateFromMap(d, "IMCON_ADDR", &kr.MeshConnectorInternalAddr)
+	kr.updateFromMap(d, "PROJECT_NUMBER", &kr.ProjectNumber)
+	kr.updateFromMap(d, "MESH_TENANT", &kr.MeshTenant)
+	kr.updateFromMap(d, "XDS_ADDR", &kr.XDSAddr)
+	kr.updateFromMap(d, "CLUSTER_NAME", &kr.ClusterName)
+	kr.updateFromMap(d, "CLUSTER_LOCATION", &kr.ClusterLocation)
+	kr.updateFromMap(d, "PROJECT_ID", &kr.ProjectId)
+	kr.updateFromMap(d, "MCON_ADDR", &kr.MeshConnectorAddr)
+	kr.updateFromMap(d, "IMCON_ADDR", &kr.MeshConnectorInternalAddr)
 
-	updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
+	kr.updateFromMap(d, "CAROOT_ISTIOD", &kr.CitadelRoot)
 	if kr.CitadelRoot != "" {
 		kr.CARoots = append(kr.CARoots, kr.CitadelRoot)
 	}
 	return nil
 }
 
-func updateFromMap(d map[string]string, key string, dest *string) {
+func (kr *KRun) updateFromMap(d map[string]string, key string, dest *string) {
 	if d[key] != "" && *dest == "" {
 		*dest = d[key]
 	}
@@ -604,4 +624,3 @@ func (kr *KRun) GetTrafficDirectorIPTablesEnvVars() []string {
 func (kr *KRun) PrepareTrafficDirectorBootstrap(templatePath string, outputPath string) error {
 	return kr.prepareTrafficDirectorBootstrap(templatePath, outputPath)
 }
-
