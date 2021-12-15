@@ -63,6 +63,7 @@ steps:
     env:
       - TAG=${_TAG}${_PR}
       - GOLDEN_IMAGE=gcr.io/${PROJECT_ID}/krun:${_TAG}${_PR}
+      - FORTIO_IMAGE=gcr.io/${PROJECT_ID}/fortio-mesh:${_TAG}${_PR}
     args:
       - -c
       - |
