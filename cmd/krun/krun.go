@@ -168,7 +168,7 @@ func initPorts(kr *mesh.KRun, hb *hbone.HBone) {
 
 func startTd(kr *mesh.KRun) {
 	kr.InitForTD()
-	log.Printf("Preparing to connect to TD mesh with project number: %s and network name: %s", kr.ProjectNumber, kr.NetworkName)
+	log.Printf("Preparing to connect to TD mesh with project number: %s and scope : %s", kr.ProjectNumber, kr.TdSidecarEnv.Scope)
 
 	if os.Getuid() != 0 {
 		log.Fatal("td only supports running as root")
