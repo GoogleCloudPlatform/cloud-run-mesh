@@ -41,6 +41,13 @@ type K8S struct {
 	Client                                  *kubernetes.Clientset
 }
 
+func K8SClient(kr *mesh.KRun) *kubernetes.Clientset {
+	if k8s, ok := kr.TokenProvider.(*K8S); ok {
+		return k8s.Client
+	}
+	return nil
+}
+
 // Init klog.InitFlags from an env (to avoid messing with the CLI of
 // the app). For example -v=9 lists full request content, -v=7 lists requests headers
 func init() {

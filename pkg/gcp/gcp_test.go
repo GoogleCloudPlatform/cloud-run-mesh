@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/k8s"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -105,11 +106,11 @@ func TestK8S(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if kr1.Client == nil {
+		if k8s.K8SClient(kr1) == nil {
 			t.Fatal("No client")
 		}
 
-		err = checkClient(kr1.Client)
+		err = checkClient(k8s.K8SClient(kr1))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -123,11 +124,11 @@ func TestK8S(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if kr1.Client == nil {
+		if k8s.K8SClient(kr1) == nil {
 			t.Fatal("No client")
 		}
 
-		err = checkClient(kr1.Client)
+		err = checkClient(k8s.K8SClient(kr1))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,11 +142,11 @@ func TestK8S(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if kr1.Client == nil {
+		if k8s.K8SClient(kr1) == nil {
 			t.Fatal("No client")
 		}
 
-		err = checkClient(kr1.Client)
+		err = checkClient(k8s.K8SClient(kr1))
 		if err != nil {
 			t.Fatal(err)
 		}

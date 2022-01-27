@@ -52,7 +52,7 @@ func (sg *MeshConnector) GetCitadelRoots(ctx context.Context) (string, error) {
 	kr := sg.Mesh
 	cm, err := kr.Cfg.GetCM(ctx, "istio-system", "istio-ca-root-cert")
 	if err != nil {
-		if mesh.Is404(err) {
+		if Is404(err) {
 			return "", nil
 		}
 		return "", err
@@ -68,10 +68,10 @@ func (sg *MeshConnector) GetCitadelRoots(ctx context.Context) (string, error) {
 }
 
 func (sg *MeshConnector) updateMeshEnv(ctx context.Context) error {
-	cmAPI := sg.Mesh.Client.CoreV1().ConfigMaps(sg.Namespace)
+	cmAPI := sg.Client.CoreV1().ConfigMaps(sg.Namespace)
 	cm, err := cmAPI.Get(ctx, "mesh-env", metav1.GetOptions{})
 	if err != nil {
-		if !mesh.Is404(err) {
+		if !Is404(err) {
 			return err
 		}
 		// Not found, create:
