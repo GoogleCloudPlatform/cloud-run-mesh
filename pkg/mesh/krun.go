@@ -32,9 +32,6 @@ import (
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v2"
-
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/kubernetes"
 )
 
 type Cfg interface {
@@ -109,10 +106,6 @@ type KRun struct {
 	// If not set, "default" will be used.
 	// TODO: use service name as default
 	KSA string
-
-	// Primary client is the k8s client to use. If not set will be created based on
-	// the config.
-	Client *kubernetes.Clientset
 
 	// ProjectId is the name of the project where config cluster is running
 	// The workload may be in a different project.
@@ -398,10 +391,7 @@ func (kr *KRun) setDefaults() {
 }
 
 func (kr *KRun) LoadConfig(ctx context.Context) error {
-	// It is possible to have only one of the 2 mesh connector services installed
-	if kr.XDSAddr == "" || kr.ProjectNumber == "" ||
-		(kr.MeshConnectorAddr == "" && kr.MeshConnectorInternalAddr == "") {
-
+	if kr.XDSAddr == "" { // if the XDS_ADDR is set explicitly, no need to load mesh env.
 		err := kr.loadMeshEnv(ctx)
 		if err != nil {
 			log.Println("Error loadMeshEnv", "err", err)
@@ -566,15 +556,6 @@ func (kr *KRun) Config(name, def string) string {
 	}
 
 	return def
-}
-
-func Is404(err error) bool {
-	if se, ok := err.(*errors.StatusError); ok {
-		if se.ErrStatus.Code == 404 {
-			return true
-		}
-	}
-	return false
 }
 
 // Signals handles the special signals.

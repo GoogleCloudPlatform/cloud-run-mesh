@@ -277,7 +277,7 @@ func (kr *KRun) StartIstioAgent() error {
 	// TODO: add support for passing a long lived 1p JWT in a file, for local run
 	//env = append(env, "JWT_POLICY=first-party-jwt")
 
-	kr.WhiteboxMode = os.Getenv("ISTIO_META_INTERCEPTION_MODE") == "NONE"
+	kr.WhiteboxMode = kr.Config("ISTIO_META_INTERCEPTION_MODE", "") == "NONE"
 	if os.Getuid() != 0 {
 		kr.WhiteboxMode = true
 	}
@@ -285,8 +285,11 @@ func (kr *KRun) StartIstioAgent() error {
 		kr.WhiteboxMode = true
 	}
 
-	if !kr.WhiteboxMode { //&& kr.Gateway != "" {
-		err := kr.runIptablesSetup(env)
+	iptablesEnv := []string{}
+	iptablesEnv = append(iptablesEnv, env...)
+
+	if !kr.WhiteboxMode {
+		err := kr.runIptablesSetup(iptablesEnv)
 		if err != nil {
 			log.Println("iptables disabled ", err)
 			kr.WhiteboxMode = true

@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/compute/metadata"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/gcp"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -77,10 +78,10 @@ func (sg *MeshConnector) FindTenant(ctx context.Context) error {
 	// TODO: find default tag, label, etc.
 	// Current code is written for MCP, use XDS_ADDR explicitly
 	// otherwise.
-	s, err := kr.Client.CoreV1().ConfigMaps("istio-system").Get(ctx,
+	s, err := sg.Client.CoreV1().ConfigMaps("istio-system").Get(ctx,
 		cmname, metav1.GetOptions{})
 	if err != nil {
-		if mesh.Is404(err) {
+		if Is404(err) {
 			return nil
 		}
 		return err
@@ -92,3 +93,14 @@ func (sg *MeshConnector) FindTenant(ctx context.Context) error {
 
 	return nil
 }
+
+
+func Is404(err error) bool {
+	if se, ok := err.(*errors.StatusError); ok {
+		if se.ErrStatus.Code == 404 {
+			return true
+		}
+	}
+	return false
+}
+

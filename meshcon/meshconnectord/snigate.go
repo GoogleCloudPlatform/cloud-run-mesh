@@ -22,10 +22,12 @@ import (
 	"time"
 
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/hbone"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/k8s"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/mesh"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/client-go/kubernetes"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -40,6 +42,10 @@ type MeshConnector struct {
 
 	CAPool string
 	CASRoots string
+
+	// Primary client is the k8s client to use. If not set will be created based on
+	// the config.
+	Client *kubernetes.Clientset
 
 	stop     chan struct{}
 	Services map[string]*corev1.Service
@@ -61,6 +67,8 @@ func New(kr *mesh.KRun) *MeshConnector {
 // The h2rPort is experimental, for dev/debug, for users running/debugging apps locally.
 func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPort string) error {
 	kr := sg.Mesh
+
+	sg.Client = k8s.K8SClient(kr)
 
 	// Locate a k8s cluster, load configs from env and from existing mesh-env.
 	// This will load the existing mesh-env, if it exists.
@@ -86,13 +94,13 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 
 	if kr.MeshConnectorAddr == "" {
 		// We'll need to wait for it - is used when updating the config
-		err := sg.WaitService(ctx)
+		kr.MeshConnectorAddr, err = sg.WaitService(ctx, "hgate")
 		if err != nil {
 			return err
 		}
 	}
 	if kr.MeshConnectorInternalAddr == "" {
-		err := sg.WaitInternalService(ctx)
+		kr.MeshConnectorInternalAddr, err = sg.WaitService(ctx, "internal-hgate")
 		if err != nil {
 			return err
 		}
@@ -158,46 +166,21 @@ func (sg *MeshConnector) InitSNIGate(ctx context.Context, sniPort string, h2rPor
 
 
 // Wait for the hgate and internal hgate service, set the config
-func (sg *MeshConnector) WaitService(ctx context.Context) error {
+func (sg *MeshConnector) WaitService(ctx context.Context, name string) (string, error) {
 	for {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return "", ctx.Err()
 		}
-		kr := sg.Mesh
-		ts, err := kr.Client.CoreV1().Services("istio-system").Get(ctx, "hgate", metav1.GetOptions{})
+		ts, err := sg.Client.CoreV1().Services("istio-system").Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			if !mesh.Is404(err) {
-				log.Println("Error getting service hgate ", err)
-				return err
+			if !Is404(err) {
+				log.Println("Error getting service", name, err)
+				return "", err
 			}
 		}
 
 		if ts != nil && len(ts.Status.LoadBalancer.Ingress) > 0 {
-			sg.Mesh.MeshConnectorAddr = ts.Status.LoadBalancer.Ingress[0].IP
-			return nil
-		}
-
-		time.Sleep(200 * time.Millisecond)
-	}
-}
-
-func (sg *MeshConnector) WaitInternalService(ctx context.Context) error {
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		kr := sg.Mesh
-		ts, err := kr.Client.CoreV1().Services("istio-system").Get(ctx, "internal-hgate", metav1.GetOptions{})
-		if err != nil {
-			if !mesh.Is404(err) {
-				log.Println("Error getting service hgate ", err)
-				return err
-			}
-		}
-
-		if ts != nil && len(ts.Status.LoadBalancer.Ingress) > 0 {
-			sg.Mesh.MeshConnectorInternalAddr = ts.Status.LoadBalancer.Ingress[0].IP
-			return nil
+			return ts.Status.LoadBalancer.Ingress[0].IP, nil
 		}
 
 		time.Sleep(200 * time.Millisecond)

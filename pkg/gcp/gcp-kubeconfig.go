@@ -17,7 +17,6 @@ package gcp
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -26,6 +25,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
+	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/cas"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/k8s"
 	"github.com/GoogleCloudPlatform/cloud-run-mesh/pkg/sts"
 	"google.golang.org/api/option"
@@ -199,14 +199,13 @@ func InitGCP(ctx context.Context, kr *mesh.KRun) error {
 	configFromEnvAndMD(ctx, kc.Mesh)
 
 	// Init additional GCP-specific env, and load the k8s cluster using discovery
-	initGKE(ctx, kc)
-	if kc.Client == nil {
-		return errors.New("No cluster found")
+	err = initGKE(ctx, kc)
+	if err != nil {
+		return err
 	}
 
 	kr.Cfg = kc
 	kr.TokenProvider = kc
-	kr.Client = kc.Client
 
 	// After the config was loaded.
 	kr.PostConfigLoad = PostConfigLoad
@@ -231,9 +230,9 @@ func PostConfigLoad(ctx context.Context, kr *mesh.KRun) error {
 
 	// TODO: only if mesh_env contains a WorkloadCertificateConfig with endpoint starting with //privateca.googleapis.com
 	// Errors results to fallback to pilot-agent and istio.
-	cas := kr.Config("CA_POOL", "")
-	if cas != "" {
-		kr.CSRSigner, err = NewCASCertProvider(cas, ol)
+	cap := kr.Config("CA_POOL", "")
+	if cap != "" {
+		kr.CSRSigner, err = cas.NewCASCertProvider(cap, ol)
 	}
 	return err
 }

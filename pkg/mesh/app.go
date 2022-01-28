@@ -70,6 +70,9 @@ func (kr *KRun) StartApp() {
 	}
 	if os.Getenv("GRPC_XDS_BOOTSTRAP") == "" {
 		cmd.Env = append(cmd.Env, "GRPC_XDS_BOOTSTRAP=/etc/istio/proxy/grpc_bootstrap.json")
+		// This is set by injector
+		cmd.Env = append(cmd.Env, "GRPC_XDS_EXPERIMENTAL_RBAC=true")
+		cmd.Env = append(cmd.Env, "GRPC_XDS_EXPERIMENTAL_SECURITY_SUPPORT=true")
 	}
 	if kr.WhiteboxMode {
 		cmd.Env = append(cmd.Env, "HTTP_PROXY=127.0.0.1:15007")
