@@ -29,8 +29,8 @@ import (
 // TDSidecarEnv contains environment files that controls how an envoy proxy will be
 // set up and interact with Traffic Director control plane.
 type TdSidecarEnv struct {
-	// Scope specifies the mesh in a project.
-	Scope string
+	// MeshName specifies the mesh name within a project.
+	MeshName string
 	// List of comma seperated IP ranges that will have their traffic intercepted
 	// and redirected to Envoy. Set it to '*' to intercept all traffic.
 	ServiceCidr string
@@ -61,7 +61,6 @@ type TdSidecarEnv struct {
 // NewTdSidecarEnv sets up TdSideCarEnv with defaults.
 func NewTdSidecarEnv() *TdSidecarEnv {
 	return &TdSidecarEnv{
-		Scope:            "default",
 		ServiceCidr:      "*",
 		EnvoyPort:        "15001",
 		EnvoyAdminPort:   "15000",
@@ -128,7 +127,7 @@ func (kr *KRun) prepareTrafficDirectorBootstrap(templatePath string, outputPath 
 	template := string(data)
 	template = strings.ReplaceAll(template, "ENVOY_NODE_ID", kr.TdSidecarEnv.NodeID)
 	template = strings.ReplaceAll(template, "ENVOY_ZONE", kr.TdSidecarEnv.EnvoyZone)
-	template = strings.ReplaceAll(template, "VPC_NETWORK_NAME", fmt.Sprintf("scope:%s", kr.TdSidecarEnv.Scope))
+	template = strings.ReplaceAll(template, "VPC_NETWORK_NAME", fmt.Sprintf("mesh:%s", kr.TdSidecarEnv.MeshName))
 	template = strings.ReplaceAll(template, "CONFIG_PROJECT_NUMBER", kr.ProjectNumber)
 	template = strings.ReplaceAll(template, "ENVOY_PORT", kr.TdSidecarEnv.EnvoyPort)
 	template = strings.ReplaceAll(template, "ENVOY_ADMIN_PORT", kr.TdSidecarEnv.EnvoyAdminPort)
