@@ -37,7 +37,10 @@ func main() {
 	kr := mesh.New()
 
 	// If InitForTDFromMeshEnv returns true, then we will use TD mesh
-	if kr.InitForTDFromMeshEnv() {
+	if tdSelected, err := kr.InitForTDFromMeshEnv(); tdSelected {
+		if err != nil {
+			log.Fatalf("Failed to initialize with TD mesh due to: %v", err)
+		}
 		startTd(kr)
 		select {}
 	}
@@ -168,7 +171,7 @@ func initPorts(kr *mesh.KRun, hb *hbone.HBone) {
 
 func startTd(kr *mesh.KRun) {
 	kr.InitForTD()
-	log.Printf("Preparing to connect to TD mesh with project number: %s and scope : %s", kr.ProjectNumber, kr.TdSidecarEnv.Scope)
+	log.Printf("Preparing to connect to TD mesh with project number: %s and mesh_name : %s", kr.ProjectNumber, kr.TdSidecarEnv.MeshName)
 
 	if os.Getuid() != 0 {
 		log.Fatal("td only supports running as root")

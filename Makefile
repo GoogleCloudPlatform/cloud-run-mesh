@@ -195,10 +195,11 @@ deploy/fortio-debug:
 deploy/testapp:
 	SERVICE=testapp IMAGE=${REPO}/testapp:${TAG}-distroless $(MAKE) deploy
 
-# Currently broken, doesn't work.
+# setting --vps-egress=all-traffic requires a NAT to be configured, the traffic will be sent to Serverless connector
+# and NAT. For mesh we want the internet egress to be sent to egress gateway instead, so this option will not be used.
 deploy/testapp-egress-all:
 	# Alternative: private-ranges-only, does not update.
-	SERVICE=testapp-egress IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--vpc-egress=all-traffic $(MAKE) deploy
+	SERVICE=testapp-egress IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA="--vpc-egress=all-traffic --set-env-vars=XDS_ADDR=10.128.15.219:15012 --set-env-vars=" $(MAKE) deploy
 
 deploy/testapp-cas:
 	SERVICE=testapp-cas IMAGE=${REPO}/testapp:${TAG}-distroless RUN_EXTRA=--set-env-vars="CAS=projects/mcp-prod/locations/us-central1/caPools/mesh" $(MAKE) deploy

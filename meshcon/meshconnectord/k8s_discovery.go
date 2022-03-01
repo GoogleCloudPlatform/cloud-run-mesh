@@ -33,14 +33,14 @@ import (
 //
 //
 
-func UpdateSlice(ctx context.Context, kr *mesh.KRun, ns string,
+func (sg *MeshConnector) UpdateSlice(ctx context.Context, kr *mesh.KRun, ns string,
 	name string) {
 	es := &discoveryv1.EndpointSlice{}
-	kr.Client.DiscoveryV1().EndpointSlices(ns).Get(
+	sg.Client.DiscoveryV1().EndpointSlices(ns).Get(
 		ctx, name, metav1.GetOptions{})
-	kr.Client.DiscoveryV1().EndpointSlices(ns).Create(
+	sg.Client.DiscoveryV1().EndpointSlices(ns).Create(
 		ctx, es, metav1.CreateOptions{})
-	kr.Client.DiscoveryV1().EndpointSlices(ns).Update(
+	sg.Client.DiscoveryV1().EndpointSlices(ns).Update(
 		ctx, es, metav1.UpdateOptions{})
 }
 
@@ -113,9 +113,8 @@ func (e EventHandler) OnDelete(obj interface{}) {
 }
 
 func (sg *MeshConnector) NewWatcher() {
-	kr := sg.Mesh
 
-	inF := informers.NewSharedInformerFactory(kr.Client, 0)
+	inF := informers.NewSharedInformerFactory(sg.Client, 0)
 	eh := &EventHandler{sg: sg}
 
 	// WIP - need to figure out which version, someone complains.
