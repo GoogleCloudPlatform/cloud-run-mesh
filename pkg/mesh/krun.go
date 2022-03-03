@@ -22,13 +22,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -238,42 +236,6 @@ func (kr *KRun) InitForTD() {
 
 // LoadTDBootstrapConfigurations loads optional bootstrap configs for TD from environment variables
 func (kr *KRun) LoadTDBootstrapConfigurations() error {
-	envoyPortRaw := os.Getenv("ENVOY_PORT")
-	if len(envoyPortRaw) > 0 {
-		envoyPort, err := strconv.Atoi(envoyPortRaw)
-		if err != nil {
-			return err
-		}
-		if envoyPort < 0 || envoyPort > 65535 {
-			return errors.New("Envoy Port provided is not a valid port")
-		}
-		kr.TdSidecarEnv.EnvoyPort = envoyPortRaw
-	}
-
-	adminPortRaw := os.Getenv("ADMIN_PORT")
-	if len(adminPortRaw) > 0 {
-		adminPort, err := strconv.Atoi(adminPortRaw)
-		if err != nil {
-			return err
-		}
-		if adminPort < 0 || adminPort > 65535 {
-			return errors.New("Admin Port provided is not a valid port.")
-		}
-		kr.TdSidecarEnv.EnvoyAdminPort = adminPortRaw
-	}
-
-	serviceCIDRRaw := os.Getenv("SERVICE_CIDR")
-	if len(serviceCIDRRaw) > 0 {
-		// Validate list of CIDR ranges
-		for _, cidr := range strings.Split(serviceCIDRRaw, ",") {
-			_, _, err := net.ParseCIDR(cidr)
-			if err != nil {
-				return err
-			}
-		}
-		kr.TdSidecarEnv.ServiceCidr = serviceCIDRRaw
-	}
-
 	_, disableDNSInterception := os.LookupEnv("DISABLE_DNS_INTERCEPTION")
 	if disableDNSInterception {
 		kr.TdSidecarEnv.EnableDNSInterception = false
