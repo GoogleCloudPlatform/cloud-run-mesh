@@ -170,6 +170,9 @@ func initPorts(kr *mesh.KRun, hb *hbone.HBone) {
 }
 
 func startTd(kr *mesh.KRun) {
+	if err := kr.LoadTDBootstrapConfigurations(); err != nil {
+		log.Fatalf("Failed to load environment variables for TD due to: %v", err)
+	}
 	kr.InitForTD()
 	log.Printf("Preparing to connect to TD mesh with project number: %s and mesh_name : %s", kr.ProjectNumber, kr.TdSidecarEnv.MeshName)
 

@@ -34,6 +34,11 @@ type TdSidecarEnv struct {
 	// List of comma seperated IP ranges that will have their traffic intercepted
 	// and redirected to Envoy. Set it to '*' to intercept all traffic.
 	ServiceCidr string
+	// List of comma seperated IP ranges that will be exempted from interception
+	// to envoy. If not set, all outbound traffic will be intercepted by envoy.
+	ExcludeCidr string
+	// If true, dns requests will be intercepted to envoy.
+	EnableDNSInterception bool
 	// Envoy listening port. Outbound traffic will be redirected to this port.
 	EnvoyPort string
 	// Envoy admin interface listening port. Admin interface will only be available on
@@ -61,15 +66,17 @@ type TdSidecarEnv struct {
 // NewTdSidecarEnv sets up TdSideCarEnv with defaults.
 func NewTdSidecarEnv() *TdSidecarEnv {
 	return &TdSidecarEnv{
-		ServiceCidr:      "*",
-		EnvoyPort:        "15001",
-		EnvoyAdminPort:   "15000",
-		LogDirectory:     "/var/log/envoy/",
-		LogLevel:         "info",
-		TracingEnabled:   false,
-		EnvoyDnsPort:     "15053",
-		XdsServerCert:    "/etc/ssl/certs/ca-certificates.crt",
-		PackageDirectory: "/td_resources",
+		ServiceCidr:           "*",
+		EnvoyPort:             "15001",
+		EnvoyAdminPort:        "15000",
+		LogDirectory:          "/var/log/envoy/",
+		LogLevel:              "info",
+		TracingEnabled:        false,
+		EnvoyDnsPort:          "15053",
+		XdsServerCert:         "/etc/ssl/certs/ca-certificates.crt",
+		PackageDirectory:      "/td_resources",
+		EnableDNSInterception: true,
+		ExcludeCidr:           "169.254.169.254/32", // metadata_server_cidr
 	}
 }
 
@@ -113,7 +120,10 @@ func (td *TdSidecarEnv) getIPTablesInterceptionEnvVars() []string {
 	envs := []string{
 		"TRAFFIC_DIRECTOR_GCE_VM_DEPLOYMENT_OVERRIDE=true",
 		"DISABLE_REDIRECTION_ON_LOCAL_LOOPBACK=true",
-		fmt.Sprintf("%s=%s", "ENVOY_DNS_PORT", td.EnvoyDnsPort),
+	}
+
+	if td.EnableDNSInterception {
+		envs = append(envs, fmt.Sprintf("%s=%s", "ENVOY_DNS_PORT", td.EnvoyDnsPort))
 	}
 	return envs
 }
