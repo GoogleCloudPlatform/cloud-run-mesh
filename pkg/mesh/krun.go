@@ -209,6 +209,7 @@ func New() *KRun {
 	return kr
 }
 
+// InitForTD initiates TdSidecarEnv fields that may have to be deduced dynamically
 func (kr *KRun) InitForTD() {
 	if len(kr.ProjectNumber) == 0 {
 		if projectNumber, err := kr.TdSidecarEnv.fetchProjectNumber(); err != nil {
@@ -231,6 +232,15 @@ func (kr *KRun) InitForTD() {
 	} else {
 		kr.TdSidecarEnv.EnvoyZone = zone
 	}
+}
+
+// LoadTDBootstrapConfigurations loads optional bootstrap configs for TD from environment variables
+func (kr *KRun) LoadTDBootstrapConfigurations() error {
+	_, disableDNSInterception := os.LookupEnv("DISABLE_DNS_INTERCEPTION")
+	if disableDNSInterception {
+		kr.TdSidecarEnv.EnableDNSInterception = false
+	}
+	return nil
 }
 
 // InitForTDFromMeshEnv returns true if Mesh env variable refers to TD mesh

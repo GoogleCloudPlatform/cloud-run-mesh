@@ -128,7 +128,7 @@ func (kr *KRun) iptablesCommand() *exec.Cmd {
 		log.Println(err)
 	}
 	return exec.Command(fmt.Sprintf("%s/iptables.sh", kr.TdSidecarEnv.PackageDirectory),
-		"-x", "169.254.169.254/32", // metadata_server_cidr
+		"-x", kr.TdSidecarEnv.ExcludeCidr,
 		"-i", kr.TdSidecarEnv.ServiceCidr,
 		"-p", kr.TdSidecarEnv.EnvoyPort,
 		"-u", strconv.Itoa(envoyUID),
