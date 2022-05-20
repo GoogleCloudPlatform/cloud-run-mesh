@@ -328,7 +328,7 @@ for gid in ${PROXY_GID}; do
   iptables -t nat -A ISTIO_OUTPUT -m owner --gid-owner ${gid} -j RETURN
 done
 
-if [ -n "${ENVOY_DNS_PORT}" ]; then
+if [ -n "${ENVOY_DNS_PORT:-}" ]; then
   # DNS requests originating from envoy uid should not be intercepted.
   for uid in ${PROXY_UID}; do
     iptables -t nat -A OUTPUT -p udp --dport 53 -m owner --uid-owner ${uid} -j RETURN

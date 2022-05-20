@@ -1,6 +1,6 @@
 # Dockerfile using an external build (similar with Istio)
 
-ARG BASE=gcr.io/istio-testing/proxyv2:latest
+ARG BASE=gcr.io/istio-testing/proxyv2:1.13-dev
 
 FROM ${BASE}
 
@@ -13,5 +13,5 @@ USER 0
 
 # Add a version variant, since this is different enough in packaging.
 ENV ISTIO_META_ISTIO_VERSION 1.13-master-cloudrun
-
+RUN /usr/local/bin/envoy --version
 ENTRYPOINT ["/usr/local/bin/krun"]
