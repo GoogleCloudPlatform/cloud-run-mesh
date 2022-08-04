@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -71,7 +72,7 @@ type KRun struct {
 
 	// External address of the mesh connector
 	// Not used for internal workloads.
-	MeshConnectorAddr         string
+	MeshConnectorAddr string
 
 	// Internal (ILB) address.
 	MeshConnectorInternalAddr string
@@ -128,10 +129,10 @@ type KRun struct {
 	appCmd      *exec.Cmd
 	TrustDomain string
 
-	StartTime  time.Time
+	StartTime      time.Time
 	EnvoyStartTime time.Time
 	EnvoyReadyTime time.Time
-	AppReadyTime time.Time
+	AppReadyTime   time.Time
 
 	Labels     map[string]string
 	VendorInit func(context.Context, *KRun) error
@@ -208,6 +209,7 @@ func New() *KRun {
 	return kr
 }
 
+// InitForTD initiates TdSidecarEnv fields that may have to be deduced dynamically
 func (kr *KRun) InitForTD() {
 	if len(kr.ProjectNumber) == 0 {
 		if projectNumber, err := kr.TdSidecarEnv.fetchProjectNumber(); err != nil {
@@ -232,34 +234,43 @@ func (kr *KRun) InitForTD() {
 	}
 }
 
-// Returns true if Mesh env variable refers to TD mesh
-// Traffic Director expects MESH env in the following formats:
-// * td:
-// * td:projects={PROJECT_NUMBER}
-// * td:scopes={SCOPE_NAME}
-// * td:projects={PROJECT_NUMBER}&scopes={SCOPE_NAME}
+// LoadTDBootstrapConfigurations loads optional bootstrap configs for TD from environment variables
+func (kr *KRun) LoadTDBootstrapConfigurations() error {
+	_, disableDNSInterception := os.LookupEnv("DISABLE_DNS_INTERCEPTION")
+	if disableDNSInterception {
+		kr.TdSidecarEnv.EnableDNSInterception = false
+	}
+	return nil
+}
 
-func (kr *KRun) InitForTDFromMeshEnv() bool {
+// InitForTDFromMeshEnv returns true if Mesh env variable refers to TD mesh
+// Traffic Director expects MESH env in the following formats:
+// * td:mesh_name={MESH_NAME}
+// * td:project={PROJECT_NUMBER}&mesh_name={MESH_NAME}
+// If these formats aren't followed and it refers to a td mesh, return a non-nil error.
+func (kr *KRun) InitForTDFromMeshEnv() (bool, error) {
 	mesh := os.Getenv("MESH")
 	u, urlErr := url.Parse(mesh)
 	if urlErr != nil {
-		return false
+		return false, nil
 	}
 
 	if u.Scheme != "td" {
-		return false
+		return false, nil
 	}
 
 	if values, err := url.ParseQuery(u.Opaque); err == nil {
-		if projectNumber := values.Get("projects"); len(projectNumber) > 0 {
+		if projectNumber := values.Get("project"); len(projectNumber) > 0 {
 			kr.ProjectNumber = projectNumber
 		}
 
-		if scope := values.Get("scopes"); len(scope) > 0 {
-			kr.TdSidecarEnv.Scope = scope
+		if meshName := values.Get("mesh_name"); len(meshName) > 0 {
+			kr.TdSidecarEnv.MeshName = meshName
+		} else {
+			return true, errors.New("Using TD mesh requires providing a mesh_name")
 		}
 	}
-	return true
+	return true, nil
 }
 
 // Extract Region from ClusterLocation
