@@ -115,7 +115,7 @@ func (td *TdSidecarEnv) getIPTablesInterceptionEnvVars() []string {
 		"TRAFFIC_DIRECTOR_GCE_VM_DEPLOYMENT_OVERRIDE=true",
 		"DISABLE_REDIRECTION_ON_LOCAL_LOOPBACK=true",
 	}
-	if !strings.EqualFold(os.Env("DISABLE_DNS_INTERCEPTION"),"true") {
+	if !strings.EqualFold(os.Getenv("DISABLE_DNS_INTERCEPTION"),"true") {
 		envs = append(envs, 
 			fmt.Sprintf("%s=%s", "ENVOY_DNS_PORT", td.EnvoyDnsPort),
 		)
