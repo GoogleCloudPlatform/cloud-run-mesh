@@ -254,7 +254,7 @@ gcloud alpha run deploy ${CLOUDRUN_SERVICE} \
           --port 15009 \
           --image ${IMAGE} \
           --vpc-connector projects/${CONFIG_PROJECT_ID}/locations/${REGION}/connectors/serverlesscon \
-         --set-env-vars="MESH=//container.googleapis.com/projects/${CONFIG_PROJECT_ID}/locations/${CLUSTER_LOCATION}/clusters/${CLUSTER_NAME}" 
+          --set-env-vars="MESH=//container.googleapis.com/projects/${CONFIG_PROJECT_ID}/locations/${CLUSTER_LOCATION}/clusters/${CLUSTER_NAME}" 
 ```
 
 For versions of `gcloud` older than 353.0, replace `--execution-environment=gen2` with `--sandbox=minivm`.
@@ -267,6 +267,12 @@ You can also use MESH=gke://${CONFIG_PROJECT_ID}, allowing the workload to autom
 - `--service-account` is recommended for 'minimal privilege'. The service account will act as a K8s SA, and have its
   RBAC permissions
 - `--use-http2`  and `--port 15009` are required
+
+If you want to use the golden-image without DNS interception, you can disable it using:
+```shell
+          --set-env-vars="DISABLE_DNS_INTERCEPTION=true" 
+```
+this will disable the redirect of DNS requests to Envoy via IPTables.
 
 ### Configure the CloudRun service in K8s
 
