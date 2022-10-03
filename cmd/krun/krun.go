@@ -196,5 +196,7 @@ func startTd(kr *mesh.KRun) {
 		log.Fatal("Failed to wait for envoy to start: ", err)
 	}
 
+	log.Println("Envoy is ready")
+
 	kr.StartApp()
 }
