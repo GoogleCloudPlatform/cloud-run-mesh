@@ -38,6 +38,8 @@ const (
 
 // StartApp uses the reminder of the command line to exec an app, using K8S_UID as UID, if present.
 func (kr *KRun) StartApp() {
+	// Even if there isn't an app to start, we still need to forward SIGTERM/SIGINT to envoy.
+	defer kr.Signals()
 	var cmd *exec.Cmd
 	if len(os.Args) == 1 {
 		return
@@ -93,8 +95,6 @@ func (kr *KRun) StartApp() {
 		}
 		kr.Exit(cmd.ProcessState.ExitCode())
 	}()
-
-	kr.Signals()
 }
 
 // WaitTCPReady uses the same detection as CloudRun, i.e. TCP connect.

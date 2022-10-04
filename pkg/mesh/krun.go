@@ -284,7 +284,6 @@ func (kr *KRun) Region() string {
 
 // initFromEnv will use the env variables, metadata server and cluster configmaps
 // to get the initial configuration for Istio and KRun.
-//
 func (kr *KRun) initFromEnv() {
 	mesh := kr.Config("MESH", "")
 	if mesh != "" {
@@ -514,7 +513,6 @@ func (kr *KRun) FindXDSAddr() string {
 // loadMeshEnv will lookup the 'mesh-env', an opaque config for the mesh.
 // Currently it is loaded from K8S
 // TODO: URL, like 'konfig' ( including gcp pseudo-URL like gcp://cluster.location.project/.... )
-//
 func (kr *KRun) loadMeshEnv(ctx context.Context) error {
 	if kr.Cfg == nil {
 		return nil // no k8s, skip loading.
