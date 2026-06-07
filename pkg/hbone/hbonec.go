@@ -61,6 +61,12 @@ type Endpoint struct {
 	// similar with an egress gateway.
 	H2Gate string
 
+	// Headers contains additional HTTP headers to include on every outbound
+	// tunnel request. Set Authorization here to forward a user JWT through a
+	// service chain; the IAM credential from TokenCallback will be placed in
+	// X-Serverless-Authorization so the user token is not overwritten.
+	Headers http.Header
+
 	tlsCon net.Conn
 	rt     *http2.ClientConn // http.RoundTripper
 }
@@ -116,6 +122,12 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		return err
 	}
 
+	for k, vs := range hc.Headers {
+		for _, v := range vs {
+			r.Header.Add(k, v)
+		}
+	}
+
 	var rt = hc.rt
 
 	if hc.hb.TokenCallback != nil {
@@ -127,6 +139,14 @@ func (hc *Endpoint) Proxy(ctx context.Context, stdin io.Reader, stdout io.WriteC
 		t, err := hc.hb.TokenCallback(ctx, "https://"+h)
 		if err != nil {
 			log.Println("Failed to get token, attempt unauthenticated", err)
+		} else if r.Header.Get("Authorization") != "" {
+			// A caller-supplied Authorization header is present (e.g. a user JWT
+			// being forwarded through a service chain). Inject the IAM credential
+			// into X-Serverless-Authorization instead so the destination Cloud Run
+			// service can verify IAM identity without dropping the user token.
+			// Cloud Run honours X-Serverless-Authorization equivalently to
+			// Authorization for IAM verification at the edge.
+			r.Header.Set("X-Serverless-Authorization", "Bearer "+t)
 		} else {
 			r.Header.Set("Authorization", "Bearer "+t)
 		}
